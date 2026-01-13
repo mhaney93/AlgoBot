@@ -6,11 +6,14 @@ from decimal import Decimal
 import ccxt
 import threading
 import datetime
+from dotenv import load_dotenv
 
-# Load environment variables
+
+# Load environment variables from .env
+load_dotenv()
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', 'YOUR_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET', 'YOUR_API_SECRET')
-NTFY_URL = os.getenv('NTFY_URL', 'https://ntfy.sh/mHaneysAlgoBot')
+NTFY_URL = 'https://ntfy.sh/mHaneysAlgoBot'
 
 exchange = ccxt.binanceus({
     'apiKey': BINANCE_API_KEY,
