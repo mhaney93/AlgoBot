@@ -37,7 +37,7 @@ def log_and_notify(message):
     print(message)
     logging.info(message)
     try:
-        requests.post(NTFY_URL, data=message.encode('utf-8'), timeout=3)
+        requests.post(NTFY_URL, data=message.encode('utf-8'), timeout=1)
     except Exception as e:
         logging.warning(f"ntfy notification failed: {e}")
 
@@ -93,7 +93,9 @@ try:
 
             # Add timeouts to all ccxt calls (default 10s)
             try:
+                print("[DEBUG] Fetching order book...")
                 order_book = exchange.fetch_order_book(SYMBOL, limit=10)
+                print("[DEBUG] Order book fetched.")
             except Exception as e:
                 print(f"Order book fetch timeout or error: {e}")
                 time.sleep(2)
@@ -109,16 +111,20 @@ try:
             spread = (lowest_ask - highest_bid) / lowest_ask
 
             try:
+                print("[DEBUG] Fetching ticker...")
                 ticker = exchange.fetch_ticker(SYMBOL)
                 price = Decimal(str(ticker['last']))
+                print("[DEBUG] Ticker fetched.")
             except Exception as e:
                 print(f"Ticker fetch timeout or error: {e}")
                 time.sleep(2)
                 continue
 
             try:
+                print("[DEBUG] Fetching balance...")
                 balance = exchange.fetch_balance()
                 usd_balance = Decimal(str(balance['total'].get('USD', 0)))
+                print("[DEBUG] Balance fetched.")
             except Exception as e:
                 print(f"Balance fetch timeout or error: {e}")
                 time.sleep(2)
