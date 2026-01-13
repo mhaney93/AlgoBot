@@ -133,7 +133,8 @@ try:
             # Status log every 10 seconds
             now = time.time()
             if now - last_status_log > 10:
-                status_msg = f"Status: price={price}, spread={spread*100:.4f}%, highest_bid={highest_bid}, lowest_ask={lowest_ask}, position={position}"
+                price_move = '+' if last_price is not None and price > last_price else '-' if last_price is not None and price < last_price else ' '
+                status_msg = f"Status: move={price_move}, spread={spread*100:.4f}%, position={position}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
