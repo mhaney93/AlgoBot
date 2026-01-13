@@ -89,6 +89,7 @@ try:
     log_and_notify("AlgoBot has started running.")
     last_move = ' '
     last_price_seen = None
+    last_logged_price = None
     while True:
         try:
             # Get order book
@@ -134,15 +135,15 @@ try:
 
             # Log every time the price moves
             now = time.time()
-            if not hasattr(log_price_move, 'last_logged_price'):
-                log_price_move.last_logged_price = price
-            if price != log_price_move.last_logged_price:
+            if last_logged_price is None:
+                last_logged_price = price
+            if price != last_logged_price:
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                move_dir = '+' if price > log_price_move.last_logged_price else '-'
-                move_msg = f"[{now_str}] Price move: {move_dir} {log_price_move.last_logged_price} -> {price}"
+                move_dir = '+' if price > last_logged_price else '-'
+                move_msg = f"[{now_str}] Price move: {move_dir} {last_logged_price} -> {price}"
                 print(move_msg)
                 logging.info(move_msg)
-                log_price_move.last_logged_price = price
+                last_logged_price = price
             # Status log every 10 seconds (no move info)
             if now - last_status_log > 10:
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
