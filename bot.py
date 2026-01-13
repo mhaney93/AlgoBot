@@ -1,23 +1,22 @@
-
 import os
 import time
 import logging
 import requests
 from decimal import Decimal
 import ccxt
+import threading
+import datetime
 
-
+# Load environment variables
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', 'YOUR_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET', 'YOUR_API_SECRET')
-NTFY_TOPIC = os.getenv('NTFY_TOPIC', 'your-ntfy-topic')
-NTFY_URL = f'https://ntfy.sh/{NTFY_TOPIC}'
+NTFY_URL = os.getenv('NTFY_URL', 'https://ntfy.sh/mHaneysAlgoBot')
 
 exchange = ccxt.binanceus({
     'apiKey': BINANCE_API_KEY,
     'secret': BINANCE_API_SECRET,
     'enableRateLimit': True,
 })
-
 
 SYMBOL = 'BNB/USD'
 SPREAD_THRESHOLD = Decimal('0.001')  # 0.1%
@@ -37,6 +36,44 @@ def log_and_notify(message):
         requests.post(NTFY_URL, data=message.encode('utf-8'), timeout=3)
     except Exception as e:
         logging.warning(f"ntfy notification failed: {e}")
+
+# 24-hour stats for daily update
+stats = {
+    'entries': 0,
+    'exits': 0,
+    'last_entry': None,
+    'last_exit': None,
+}
+
+def send_daily_update():
+    while True:
+        now = datetime.datetime.now()
+        # Calculate next 8am
+        next_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        if now >= next_8am:
+            next_8am += datetime.timedelta(days=1)
+        wait_seconds = (next_8am - now).total_seconds()
+        time.sleep(wait_seconds)
+        # Compose and send update
+        msg = (
+            f"[24h Update]\n"
+            f"Entries: {stats['entries']}\n"
+            f"Exits: {stats['exits']}\n"
+            f"Last Entry: {stats['last_entry']}\n"
+            f"Last Exit: {stats['last_exit']}\n"
+        )
+        try:
+            requests.post(NTFY_URL, data=msg.encode('utf-8'), timeout=5)
+        except Exception as e:
+            logging.warning(f"ntfy daily update failed: {e}")
+        # Reset stats for next 24h
+        stats['entries'] = 0
+        stats['exits'] = 0
+        stats['last_entry'] = None
+        stats['last_exit'] = None
+
+# Start daily update thread
+threading.Thread(target=send_daily_update, daemon=True).start()
 
 last_price = None
 position = None  # {'entry': Decimal, 'qty': Decimal, 'ratchet': Decimal}
@@ -81,7 +118,6 @@ while True:
                 if buy_qty > 0:
                     msg = f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {spread*100:.4f}%)"
                     log_and_notify(msg)
-                    # LIVE ORDER EXECUTION:
                     order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                     position = {
                         'entry': lowest_ask,
@@ -89,6 +125,9 @@ while True:
                         'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
                     }
                     sell_trigger = position['entry'] * (Decimal('1.0') - Decimal('0.002'))  # -0.2% stop
+                    # Update stats
+                    stats['entries'] += 1
+                    stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
 
         # Sell and ratcheting logic
         if position is not None:
@@ -117,8 +156,10 @@ while True:
             if cover_bid <= sell_trigger:
                 msg = f"EXIT: Market sell {position['qty']} BNB at {cover_bid} USD (entry: {position['entry']}, ratchet: {position['ratchet']*100:.2f}%)"
                 log_and_notify(msg)
-                # LIVE ORDER EXECUTION:
                 order = exchange.create_market_sell_order(SYMBOL, float(position['qty']))
+                # Update stats
+                stats['exits'] += 1
+                stats['last_exit'] = f"{position['qty']} BNB at {cover_bid} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
                 position = None
                 sell_trigger = None
 
