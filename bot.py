@@ -19,6 +19,7 @@ exchange = ccxt.binanceus({
     'apiKey': BINANCE_API_KEY,
     'secret': BINANCE_API_SECRET,
     'enableRateLimit': True,
+    'timeout': 10000,  # 10 seconds
 })
 
 SYMBOL = 'BNB/USD'
@@ -92,7 +93,7 @@ try:
 
             # Add timeouts to all ccxt calls (default 10s)
             try:
-                order_book = exchange.fetch_order_book(SYMBOL, limit=10, params={"timeout": 10000})
+                order_book = exchange.fetch_order_book(SYMBOL, limit=10)
             except Exception as e:
                 print(f"Order book fetch timeout or error: {e}")
                 time.sleep(2)
@@ -108,7 +109,7 @@ try:
             spread = (lowest_ask - highest_bid) / lowest_ask
 
             try:
-                ticker = exchange.fetch_ticker(SYMBOL, params={"timeout": 10000})
+                ticker = exchange.fetch_ticker(SYMBOL)
                 price = Decimal(str(ticker['last']))
             except Exception as e:
                 print(f"Ticker fetch timeout or error: {e}")
@@ -116,7 +117,7 @@ try:
                 continue
 
             try:
-                balance = exchange.fetch_balance(params={"timeout": 10000})
+                balance = exchange.fetch_balance()
                 usd_balance = Decimal(str(balance['total'].get('USD', 0)))
             except Exception as e:
                 print(f"Balance fetch timeout or error: {e}")
