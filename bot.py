@@ -132,20 +132,21 @@ try:
                 time.sleep(2)
                 continue
 
-            # Status log every 10 seconds
+            # Log every time the price moves
             now = time.time()
-            # Track the direction of the most recent price change
-            if last_price_seen is None:
-                last_price_seen = price
-            if price > last_price_seen:
-                last_move = '+'
-            elif price < last_price_seen:
-                last_move = '-'
-            # else, keep last_move as is
-            last_price_seen = price
+            if not hasattr(log_price_move, 'last_logged_price'):
+                log_price_move.last_logged_price = price
+            if price != log_price_move.last_logged_price:
+                now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                move_dir = '+' if price > log_price_move.last_logged_price else '-'
+                move_msg = f"[{now_str}] Price move: {move_dir} {log_price_move.last_logged_price} -> {price}"
+                print(move_msg)
+                logging.info(move_msg)
+                log_price_move.last_logged_price = price
+            # Status log every 10 seconds (no move info)
             if now - last_status_log > 10:
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                status_msg = f"[{now_str}] Status: move={last_move}, spread={spread*100:.4f}%, position={position}"
+                status_msg = f"[{now_str}] Status: spread={spread*100:.4f}%, position={position}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
@@ -177,7 +178,12 @@ try:
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
                     if buy_qty > 0:
-                        msg = f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)"
+                        minus_02 = lowest_ask * Decimal('0.998')
+                        plus_01 = lowest_ask * Decimal('1.001')
+                        msg = (
+                            f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
+                            f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
+                        )
                         print(msg)
                         logging.info(msg)
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
@@ -225,7 +231,7 @@ try:
                     msg = f"EXIT: Market sell {qty} BNB at {exit_price} USD (entry: {entry_price}, ratchet: {position['ratchet']*100:.2f}%)"
                     print(msg)
                     logging.info(msg)
-                    ntfy_msg = f"P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
+                    ntfy_msg = f"Position exited\nP/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
                     try:
                         requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=1)
                     except Exception as e:
