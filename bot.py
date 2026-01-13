@@ -138,14 +138,34 @@ try:
                 logging.info(status_msg)
                 last_status_log = now
 
-            # Buy logic
-            if position is None and spread < SPREAD_THRESHOLD:
-                if last_price is not None and price > last_price:
-                    ask_qty = Decimal(str(asks[0][1]))
+            # Updated entry logic: use VWAP of cumulative bids to cover lowest ask size
+            if position is None:
+                ask_qty = Decimal(str(asks[0][1]))
+                cumulative_bid_qty = Decimal('0')
+                weighted_bid_sum = Decimal('0')
+                for bid_price, bid_qty in bids:
+                    bid_price_dec = Decimal(str(bid_price))
+                    bid_qty_dec = Decimal(str(bid_qty))
+                    if cumulative_bid_qty + bid_qty_dec >= ask_qty:
+                        needed_qty = ask_qty - cumulative_bid_qty
+                        weighted_bid_sum += bid_price_dec * needed_qty
+                        cumulative_bid_qty += needed_qty
+                        break
+                    else:
+                        weighted_bid_sum += bid_price_dec * bid_qty_dec
+                        cumulative_bid_qty += bid_qty_dec
+                if cumulative_bid_qty == 0:
+                    vwap_bid_price = Decimal(str(bids[0][0]))
+                else:
+                    vwap_bid_price = weighted_bid_sum / ask_qty
+                # Calculate spread using VWAP bid price
+                entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
+                # Only enter if spread < threshold and price increased
+                if entry_spread < SPREAD_THRESHOLD and last_price is not None and price > last_price:
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
                     if buy_qty > 0:
-                        msg = f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {spread*100:.4f}%)"
+                        msg = f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)"
                         log_and_notify(msg)
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                         position = {
