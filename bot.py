@@ -132,17 +132,20 @@ try:
 
             # Status log every 10 seconds
             now = time.time()
+            # Track the direction of the most recent price change
+            if not hasattr(bot_status_logger, 'last_move'):
+                bot_status_logger.last_move = ' '
+            if not hasattr(bot_status_logger, 'last_price_seen'):
+                bot_status_logger.last_price_seen = price
+            if price > bot_status_logger.last_price_seen:
+                bot_status_logger.last_move = '+'
+            elif price < bot_status_logger.last_price_seen:
+                bot_status_logger.last_move = '-'
+            # else, keep last_move as is
+            bot_status_logger.last_price_seen = price
             if now - last_status_log > 10:
-                if last_price is None:
-                    price_move = ' '
-                elif price > last_price:
-                    price_move = '+'
-                elif price < last_price:
-                    price_move = '-'
-                else:
-                    price_move = '0'
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                status_msg = f"[{now_str}] Status: move={price_move}, spread={spread*100:.4f}%, position={position}"
+                status_msg = f"[{now_str}] Status: move={bot_status_logger.last_move}, spread={spread*100:.4f}%, position={position}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
