@@ -89,7 +89,14 @@ try:
     while True:
         try:
             # Get order book
-            order_book = exchange.fetch_order_book(SYMBOL, limit=10)
+
+            # Add timeouts to all ccxt calls (default 10s)
+            try:
+                order_book = exchange.fetch_order_book(SYMBOL, limit=10, params={"timeout": 10000})
+            except Exception as e:
+                print(f"Order book fetch timeout or error: {e}")
+                time.sleep(2)
+                continue
             bids = order_book['bids']
             asks = order_book['asks']
             if not bids or not asks:
@@ -100,13 +107,21 @@ try:
             lowest_ask = Decimal(str(asks[0][0]))
             spread = (lowest_ask - highest_bid) / lowest_ask
 
-            # Get latest price
-            ticker = exchange.fetch_ticker(SYMBOL)
-            price = Decimal(str(ticker['last']))
+            try:
+                ticker = exchange.fetch_ticker(SYMBOL, params={"timeout": 10000})
+                price = Decimal(str(ticker['last']))
+            except Exception as e:
+                print(f"Ticker fetch timeout or error: {e}")
+                time.sleep(2)
+                continue
 
-            # Get USD balance
-            balance = exchange.fetch_balance()
-            usd_balance = Decimal(str(balance['total'].get('USD', 0)))
+            try:
+                balance = exchange.fetch_balance(params={"timeout": 10000})
+                usd_balance = Decimal(str(balance['total'].get('USD', 0)))
+            except Exception as e:
+                print(f"Balance fetch timeout or error: {e}")
+                time.sleep(2)
+                continue
 
             # Status log every 10 seconds
             now = time.time()
