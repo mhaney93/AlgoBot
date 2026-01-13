@@ -83,91 +83,98 @@ position = None  # {'entry': Decimal, 'qty': Decimal, 'ratchet': Decimal}
 sell_trigger = None
 last_status_log = 0
 
-while True:
-    try:
-        # Get order book
-        order_book = exchange.fetch_order_book(SYMBOL, limit=10)
-        bids = order_book['bids']
-        asks = order_book['asks']
-        if not bids or not asks:
-            print('No bids or asks available.')
-            time.sleep(2)
-            continue
-        highest_bid = Decimal(str(bids[0][0]))
-        lowest_ask = Decimal(str(asks[0][0]))
-        spread = (lowest_ask - highest_bid) / lowest_ask
+try:
+    print("\n=== AlgoBot is starting up! ===\n")
+    log_and_notify("AlgoBot has started running.")
+    while True:
+        try:
+            # Get order book
+            order_book = exchange.fetch_order_book(SYMBOL, limit=10)
+            bids = order_book['bids']
+            asks = order_book['asks']
+            if not bids or not asks:
+                print('No bids or asks available.')
+                time.sleep(2)
+                continue
+            highest_bid = Decimal(str(bids[0][0]))
+            lowest_ask = Decimal(str(asks[0][0]))
+            spread = (lowest_ask - highest_bid) / lowest_ask
 
-        # Get latest price
-        ticker = exchange.fetch_ticker(SYMBOL)
-        price = Decimal(str(ticker['last']))
+            # Get latest price
+            ticker = exchange.fetch_ticker(SYMBOL)
+            price = Decimal(str(ticker['last']))
 
-        # Get USD balance
-        balance = exchange.fetch_balance()
-        usd_balance = Decimal(str(balance['total'].get('USD', 0)))
+            # Get USD balance
+            balance = exchange.fetch_balance()
+            usd_balance = Decimal(str(balance['total'].get('USD', 0)))
 
-        # Status log every 10 seconds
-        now = time.time()
-        if now - last_status_log > 10:
-            status_msg = f"Status: price={price}, spread={spread*100:.4f}%, highest_bid={highest_bid}, lowest_ask={lowest_ask}, position={position}"
-            logging.info(status_msg)
-            last_status_log = now
+            # Status log every 10 seconds
+            now = time.time()
+            if now - last_status_log > 10:
+                status_msg = f"Status: price={price}, spread={spread*100:.4f}%, highest_bid={highest_bid}, lowest_ask={lowest_ask}, position={position}"
+                print(status_msg)
+                logging.info(status_msg)
+                last_status_log = now
 
-        # Buy logic
-        if position is None and spread < SPREAD_THRESHOLD:
-            if last_price is not None and price > last_price:
-                ask_qty = Decimal(str(asks[0][1]))
-                max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
-                buy_qty = min(ask_qty, max_qty)
-                if buy_qty > 0:
-                    msg = f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {spread*100:.4f}%)"
+            # Buy logic
+            if position is None and spread < SPREAD_THRESHOLD:
+                if last_price is not None and price > last_price:
+                    ask_qty = Decimal(str(asks[0][1]))
+                    max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
+                    buy_qty = min(ask_qty, max_qty)
+                    if buy_qty > 0:
+                        msg = f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {spread*100:.4f}%)"
+                        log_and_notify(msg)
+                        order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                        position = {
+                            'entry': lowest_ask,
+                            'qty': buy_qty,
+                            'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
+                        }
+                        sell_trigger = position['entry'] * (Decimal('1.0') - Decimal('0.002'))  # -0.2% stop
+                        # Update stats
+                        stats['entries'] += 1
+                        stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+
+            # Sell and ratcheting logic
+            if position is not None:
+                # Find the highest bid that covers the position size
+                cover_bid = None
+                running_qty = Decimal('0')
+                for bid_price, bid_qty in bids:
+                    running_qty += Decimal(str(bid_qty))
+                    if running_qty >= position['qty']:
+                        cover_bid = Decimal(str(bid_price))
+                        break
+                if cover_bid is None:
+                    cover_bid = highest_bid
+
+                # Ratchet up if cover_bid > entry + ratchet
+                ratchet_price = position['entry'] * (Decimal('1.0') + position['ratchet'])
+                if cover_bid > ratchet_price:
+                    position['ratchet'] += Decimal('0.001')  # move up by 0.1%
+                    msg = f"RATCHET: Stop moved to +{position['ratchet']*100:.2f}% of entry."
+                    logging.info(msg)
+
+                # Update sell_trigger to new ratchet level
+                sell_trigger = position['entry'] * (Decimal('1.0') + position['ratchet'])
+
+                # If cover_bid drops to or below sell_trigger, sell
+                if cover_bid <= sell_trigger:
+                    msg = f"EXIT: Market sell {position['qty']} BNB at {cover_bid} USD (entry: {position['entry']}, ratchet: {position['ratchet']*100:.2f}%)"
                     log_and_notify(msg)
-                    order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                    position = {
-                        'entry': lowest_ask,
-                        'qty': buy_qty,
-                        'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                    }
-                    sell_trigger = position['entry'] * (Decimal('1.0') - Decimal('0.002'))  # -0.2% stop
+                    order = exchange.create_market_sell_order(SYMBOL, float(position['qty']))
                     # Update stats
-                    stats['entries'] += 1
-                    stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                    stats['exits'] += 1
+                    stats['last_exit'] = f"{position['qty']} BNB at {cover_bid} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                    position = None
+                    sell_trigger = None
 
-        # Sell and ratcheting logic
-        if position is not None:
-            # Find the highest bid that covers the position size
-            cover_bid = None
-            running_qty = Decimal('0')
-            for bid_price, bid_qty in bids:
-                running_qty += Decimal(str(bid_qty))
-                if running_qty >= position['qty']:
-                    cover_bid = Decimal(str(bid_price))
-                    break
-            if cover_bid is None:
-                cover_bid = highest_bid
-
-            # Ratchet up if cover_bid > entry + ratchet
-            ratchet_price = position['entry'] * (Decimal('1.0') + position['ratchet'])
-            if cover_bid > ratchet_price:
-                position['ratchet'] += Decimal('0.001')  # move up by 0.1%
-                msg = f"RATCHET: Stop moved to +{position['ratchet']*100:.2f}% of entry."
-                logging.info(msg)
-
-            # Update sell_trigger to new ratchet level
-            sell_trigger = position['entry'] * (Decimal('1.0') + position['ratchet'])
-
-            # If cover_bid drops to or below sell_trigger, sell
-            if cover_bid <= sell_trigger:
-                msg = f"EXIT: Market sell {position['qty']} BNB at {cover_bid} USD (entry: {position['entry']}, ratchet: {position['ratchet']*100:.2f}%)"
-                log_and_notify(msg)
-                order = exchange.create_market_sell_order(SYMBOL, float(position['qty']))
-                # Update stats
-                stats['exits'] += 1
-                stats['last_exit'] = f"{position['qty']} BNB at {cover_bid} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                position = None
-                sell_trigger = None
-
-        last_price = price
-    except Exception as e:
-        logging.error(f'Error: {e}')
-        print('Error:', e)
-    time.sleep(2)
+            last_price = price
+        except Exception as e:
+            logging.error(f'Error: {e}')
+            print('Error:', e)
+        time.sleep(2)
+except KeyboardInterrupt:
+    print("\n=== AlgoBot is shutting down. ===\n")
+    log_and_notify("AlgoBot has stopped running.")
