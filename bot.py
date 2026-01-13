@@ -161,7 +161,7 @@ try:
                     vwap_bid_price_status = weighted_bid_sum_status / ask_qty_status
                 vwap_spread = (lowest_ask - vwap_bid_price_status) / lowest_ask
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                status_msg = f"[{now_str}] Status: vwap_spread={vwap_spread*100:.4f}%, position={position}"
+                status_msg = f"[{now_str}] Status: spread={vwap_spread*100:.4f}%, position={position}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
