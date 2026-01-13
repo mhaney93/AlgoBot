@@ -96,9 +96,7 @@ try:
 
             # Add timeouts to all ccxt calls (default 10s)
             try:
-                print("[DEBUG] Fetching order book...")
                 order_book = exchange.fetch_order_book(SYMBOL, limit=10)
-                print("[DEBUG] Order book fetched.")
             except Exception as e:
                 print(f"Order book fetch timeout or error: {e}")
                 time.sleep(2)
@@ -114,20 +112,16 @@ try:
             spread = (lowest_ask - highest_bid) / lowest_ask
 
             try:
-                print("[DEBUG] Fetching ticker...")
                 ticker = exchange.fetch_ticker(SYMBOL)
                 price = Decimal(str(ticker['last']))
-                print("[DEBUG] Ticker fetched.")
             except Exception as e:
                 print(f"Ticker fetch timeout or error: {e}")
                 time.sleep(2)
                 continue
 
             try:
-                print("[DEBUG] Fetching balance...")
                 balance = exchange.fetch_balance()
                 usd_balance = Decimal(str(balance['total'].get('USD', 0)))
-                print("[DEBUG] Balance fetched.")
             except Exception as e:
                 print(f"Balance fetch timeout or error: {e}")
                 time.sleep(2)
@@ -144,10 +138,30 @@ try:
                 print(move_msg)
                 logging.info(move_msg)
                 last_logged_price = price
-            # Status log every 10 seconds (no move info)
+            # Status log every 10 seconds (VWAP-based spread)
             if now - last_status_log > 10:
+                # Calculate VWAP bid price for ask_qty (same as entry logic)
+                ask_qty_status = Decimal(str(asks[0][1]))
+                cumulative_bid_qty_status = Decimal('0')
+                weighted_bid_sum_status = Decimal('0')
+                for bid_price, bid_qty in bids:
+                    bid_price_dec = Decimal(str(bid_price))
+                    bid_qty_dec = Decimal(str(bid_qty))
+                    if cumulative_bid_qty_status + bid_qty_dec >= ask_qty_status:
+                        needed_qty = ask_qty_status - cumulative_bid_qty_status
+                        weighted_bid_sum_status += bid_price_dec * needed_qty
+                        cumulative_bid_qty_status += needed_qty
+                        break
+                    else:
+                        weighted_bid_sum_status += bid_price_dec * bid_qty_dec
+                        cumulative_bid_qty_status += bid_qty_dec
+                if cumulative_bid_qty_status == 0:
+                    vwap_bid_price_status = Decimal(str(bids[0][0]))
+                else:
+                    vwap_bid_price_status = weighted_bid_sum_status / ask_qty_status
+                vwap_spread = (lowest_ask - vwap_bid_price_status) / lowest_ask
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                status_msg = f"[{now_str}] Status: spread={spread*100:.4f}%, position={position}"
+                status_msg = f"[{now_str}] Status: vwap_spread={vwap_spread*100:.4f}%, position={position}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
