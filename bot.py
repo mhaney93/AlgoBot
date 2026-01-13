@@ -175,6 +175,7 @@ try:
                 # Calculate spread using VWAP bid price
                 entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
                 # Only enter if spread < threshold and price increased
+                debug_entry = False
                 if entry_spread < SPREAD_THRESHOLD and last_price is not None and price > last_price:
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
@@ -197,6 +198,10 @@ try:
                         # Update stats
                         stats['entries'] += 1
                         stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                else:
+                    debug_entry = True
+                if debug_entry:
+                    print(f"[DEBUG][ENTRY] entry_spread={entry_spread:.6f}, price={price}, last_price={last_price}, ask_qty={ask_qty}, max_qty={max_qty if 'max_qty' in locals() else 'N/A'}, buy_qty={buy_qty if 'buy_qty' in locals() else 'N/A'}")
 
             # Sell and ratcheting logic
             if position is not None:
