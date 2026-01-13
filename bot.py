@@ -166,7 +166,8 @@ try:
                     buy_qty = min(ask_qty, max_qty)
                     if buy_qty > 0:
                         msg = f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)"
-                        log_and_notify(msg)
+                        print(msg)
+                        logging.info(msg)
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                         position = {
                             'entry': lowest_ask,
@@ -203,12 +204,24 @@ try:
 
                 # If cover_bid drops to or below sell_trigger, sell
                 if cover_bid <= sell_trigger:
-                    msg = f"EXIT: Market sell {position['qty']} BNB at {cover_bid} USD (entry: {position['entry']}, ratchet: {position['ratchet']*100:.2f}%)"
-                    log_and_notify(msg)
-                    order = exchange.create_market_sell_order(SYMBOL, float(position['qty']))
+                    # Calculate P/L
+                    exit_price = cover_bid
+                    entry_price = position['entry']
+                    qty = position['qty']
+                    pnl_usd = (exit_price - entry_price) * qty
+                    pnl_pct = ((exit_price - entry_price) / entry_price) * 100
+                    msg = f"EXIT: Market sell {qty} BNB at {exit_price} USD (entry: {entry_price}, ratchet: {position['ratchet']*100:.2f}%)"
+                    print(msg)
+                    logging.info(msg)
+                    ntfy_msg = f"P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
+                    try:
+                        requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=1)
+                    except Exception as e:
+                        logging.warning(f"ntfy notification failed: {e}")
+                    order = exchange.create_market_sell_order(SYMBOL, float(qty))
                     # Update stats
                     stats['exits'] += 1
-                    stats['last_exit'] = f"{position['qty']} BNB at {cover_bid} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                    stats['last_exit'] = f"{qty} BNB at {exit_price} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
                     position = None
                     sell_trigger = None
 
