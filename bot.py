@@ -92,9 +92,10 @@ try:
     last_logged_price = None
     while True:
         try:
-            # Get order book
+            # Save previous price before fetching new one
+            prev_price = last_price
 
-            # Add timeouts to all ccxt calls (default 10s)
+            # Get order book
             try:
                 order_book = exchange.fetch_order_book(SYMBOL, limit=10)
             except Exception as e:
@@ -118,6 +119,7 @@ try:
                 print(f"Ticker fetch timeout or error: {e}")
                 time.sleep(2)
                 continue
+            last_price = price
 
             try:
                 balance = exchange.fetch_balance()
@@ -220,8 +222,8 @@ try:
                 entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
                 # Only enter if spread < threshold and price increased
                 debug_entry = False
-                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={last_price}, price={price}, price_increased={price > last_price if last_price is not None else 'N/A'}")
-                if entry_spread < SPREAD_THRESHOLD and last_price is not None and price > last_price:
+                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={prev_price}, price={price}, price_increased={price > prev_price if prev_price is not None else 'N/A'}")
+                if entry_spread < SPREAD_THRESHOLD and prev_price is not None and price > prev_price:
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
                     if buy_qty > 0:
