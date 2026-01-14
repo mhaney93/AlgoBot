@@ -325,13 +325,14 @@ try:
                     msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{pos['ratchet']*100:.2f}% of entry)"
                     logging.info(msg)
 
-                # Diagnostic logging for sell condition
-                print(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={pos}")
-                logging.info(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={pos}")
+                # Enhanced diagnostic logging for sell condition
+                print(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f} (type={type(cover_bid)} repr={repr(cover_bid)}), lower_thresh={lower_thresh:.4f} (type={type(lower_thresh)} repr={repr(lower_thresh)}), position={pos}")
+                logging.info(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f} (type={type(cover_bid)} repr={repr(cover_bid)}), lower_thresh={lower_thresh:.4f} (type={type(lower_thresh)} repr={repr(lower_thresh)}), position={pos}")
                 # If cover_bid drops to or below lower_thresh, sell
                 if cover_bid <= lower_thresh:
                     print(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
                     logging.info(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
+                    print(f"[DEBUG][SELL] cover_bid={cover_bid} (type={type(cover_bid)}), lower_thresh={lower_thresh} (type={type(lower_thresh)})")
                     exit_price = cover_bid
                     qty = pos['qty']
                     pnl_usd = (exit_price - entry_price) * qty
