@@ -310,6 +310,7 @@ try:
                 needed_qty = pos['qty']
                 cumulative_qty = Decimal('0')
                 weighted_bid_sum = Decimal('0')
+                # Recalculate cover_bid for each position independently
                 for bid_price, bid_qty in bids:
                     bid_price_dec = Decimal(str(bid_price))
                     bid_qty_dec = Decimal(str(bid_qty))
@@ -337,11 +338,8 @@ try:
                     msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{pos['ratchet']*100:.2f}% of entry)"
                     logging.info(msg)
 
-                # Enhanced diagnostic logging for sell condition
-                # ...removed [DIAG][SELL] diagnostic logging...
                 # If cover_bid drops to or below lower_thresh, sell
                 if cover_bid <= lower_thresh:
-                    # Sell immediately when exit condition is met
                     exit_price = cover_bid
                     qty = pos['qty']
                     pnl_usd = (exit_price - entry_price) * qty
@@ -358,8 +356,9 @@ try:
                     # Update stats
                     stats['exits'] += 1
                     stats['last_exit'] = f"{qty} BNB at {exit_price} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                    continue  # Do not keep this position
-                new_positions.append(pos)
+                    # Do not keep this position
+                else:
+                    new_positions.append(pos)
             positions = new_positions
 
             last_price = price
