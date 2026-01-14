@@ -188,7 +188,7 @@ try:
                     lower_thresh = float(entry_price * (1 - 0.002 + float(position['ratchet'])))
                     upper_thresh = float(entry_price * (1 + float(position['ratchet'])))
                     pos_status = f"entry: {entry_price:.2f}, lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, cover bid: {cover_bid:.2f}"
-                status_msg = f"[{now_str}] Status: spread={vwap_spread*100:.4f}%, position={pos_status}"
+                status_msg = f"[{now_str}] Status: spread={vwap_spread*100:.4f}%, usd_balance={usd_balance:.2f}, position={pos_status}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
@@ -241,8 +241,7 @@ try:
                         stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
                 else:
                     debug_entry = True
-                if debug_entry:
-                    print(f"[DEBUG][ENTRY] entry_spread={entry_spread:.6f}, price={price}, last_price={last_price}, ask_qty={ask_qty}, max_qty={max_qty if 'max_qty' in locals() else 'N/A'}, buy_qty={buy_qty if 'buy_qty' in locals() else 'N/A'}")
+                # ...removed debug entry logger...
 
             # Sell and ratcheting logic
             if position is not None:
