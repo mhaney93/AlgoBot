@@ -188,7 +188,7 @@ try:
                     lower_thresh = float(entry_price * (1 - 0.002 + float(position['ratchet'])))
                     upper_thresh = float(entry_price * (1 + float(position['ratchet'])))
                     pos_status = f"entry: {entry_price:.2f}, lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, cover bid: {cover_bid:.2f}"
-                status_msg = f"[{now_str}] Status: spread={vwap_spread*100:.4f}%, usd_balance={usd_balance:.2f}, position={pos_status}"
+                status_msg = f"[{now_str}] Status: USD={usd_balance:.2f}, spread={vwap_spread*100:.4f}%, position={pos_status}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
