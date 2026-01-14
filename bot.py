@@ -340,7 +340,7 @@ try:
                 # ...removed [DIAG][SELL] diagnostic logging...
                 # If cover_bid drops to or below lower_thresh, sell
                 if cover_bid <= lower_thresh:
-                    # ...removed [DIAG][SELL] diagnostic logging...
+                    # Sell immediately when exit condition is met
                     exit_price = cover_bid
                     qty = pos['qty']
                     pnl_usd = (exit_price - entry_price) * qty
