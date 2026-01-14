@@ -161,7 +161,34 @@ try:
                     vwap_bid_price_status = weighted_bid_sum_status / ask_qty_status
                 vwap_spread = (lowest_ask - vwap_bid_price_status) / lowest_ask
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                status_msg = f"[{now_str}] Status: spread={vwap_spread*100:.4f}%, position={position}"
+                # Build custom position status string
+                pos_status = "None"
+                if position is not None:
+                    entry_price = float(position['entry'])
+                    # Calculate weighted cover bid for position size
+                    needed_qty = position['qty']
+                    cumulative_qty = Decimal('0')
+                    weighted_bid_sum = Decimal('0')
+                    for bid_price, bid_qty in bids:
+                        bid_price_dec = Decimal(str(bid_price))
+                        bid_qty_dec = Decimal(str(bid_qty))
+                        if cumulative_qty + bid_qty_dec >= needed_qty:
+                            fill_qty = needed_qty - cumulative_qty
+                            weighted_bid_sum += bid_price_dec * fill_qty
+                            cumulative_qty += fill_qty
+                            break
+                        else:
+                            weighted_bid_sum += bid_price_dec * bid_qty_dec
+                            cumulative_qty += bid_qty_dec
+                    if cumulative_qty == 0:
+                        cover_bid = float(bids[0][0])
+                    else:
+                        cover_bid = float(weighted_bid_sum / needed_qty)
+                    # Calculate thresholds
+                    lower_thresh = float(entry_price * (1 - 0.002 + float(position['ratchet'])))
+                    upper_thresh = float(entry_price * (1 + float(position['ratchet'])))
+                    pos_status = f"entry: {entry_price:.2f}, lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, cover bid: {cover_bid:.2f}"
+                status_msg = f"[{now_str}] Status: spread={vwap_spread*100:.4f}%, position={pos_status}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
