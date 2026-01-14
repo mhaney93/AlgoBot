@@ -90,6 +90,7 @@ try:
     last_move = ' '
     last_price_seen = None
     last_logged_price = None
+    last_diff_price = None
     while True:
         try:
             # Save previous price before fetching new one
@@ -133,9 +134,12 @@ try:
             now = time.time()
             if last_logged_price is None:
                 last_logged_price = price
+            if last_diff_price is None:
+                last_diff_price = price
 
             price_moved = False
             prev_logged_price = last_logged_price
+            prev_diff_price = last_diff_price
             if price != last_logged_price:
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 move_dir = '+' if price > last_logged_price else '-'
@@ -144,6 +148,7 @@ try:
                 logging.info(move_msg)
                 price_moved = True
                 last_logged_price = price
+                last_diff_price = price
 
             # Entry logic: check every loop, but only log diagnostics on price move or actual buy
             ask_qty = Decimal(str(asks[0][1]))
@@ -168,7 +173,7 @@ try:
             # Only log entry diagnostics on price move
             if price_moved:
                 print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={prev_logged_price}, price={price}, price_increased={price > prev_logged_price if prev_logged_price is not None else 'N/A'} (on price move)")
-            if entry_spread < SPREAD_THRESHOLD and prev_logged_price is not None and price > prev_logged_price:
+            if entry_spread < SPREAD_THRESHOLD and price > prev_diff_price:
                 max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                 buy_qty = min(ask_qty, max_qty)
                 if buy_qty > 0:
