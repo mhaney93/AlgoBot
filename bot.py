@@ -171,7 +171,8 @@ try:
                 vwap_bid_price = weighted_bid_sum / ask_qty
             entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
             # ...removed [DIAG][ENTRY] diagnostic logging...
-            if entry_spread < SPREAD_THRESHOLD and price >= prev_diff_price:
+            # Only buy if we have a previous price and price has increased
+            if prev_diff_price is not None and entry_spread < SPREAD_THRESHOLD and price > prev_diff_price:
                 max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                 buy_qty = min(ask_qty, max_qty)
                 min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
@@ -276,8 +277,7 @@ try:
                 # Calculate spread using VWAP bid price
                 entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
                 # Only enter if spread < threshold and price increased
-                debug_entry = False
-                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={prev_price}, price={price}, price_increased={price > prev_price if prev_price is not None else 'N/A'}")
+                # ...removed [DIAG][ENTRY] diagnostic logging...
                 if entry_spread < SPREAD_THRESHOLD and prev_price is not None and price > prev_price:
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
