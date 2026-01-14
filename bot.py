@@ -79,9 +79,9 @@ def send_daily_update():
 # Start daily update thread
 threading.Thread(target=send_daily_update, daemon=True).start()
 
+
 last_price = None
-position = None  # {'entry': Decimal, 'qty': Decimal, 'ratchet': Decimal}
-sell_trigger = None
+positions = []  # List of {'entry': Decimal, 'qty': Decimal, 'ratchet': Decimal}
 last_status_log = 0
 
 try:
@@ -121,7 +121,7 @@ try:
 
             try:
                 balance = exchange.fetch_balance()
-                usd_balance = Decimal(str(balance['total'].get('USD', 0)))
+                usd_balance = Decimal(str(balance['free'].get('USD', 0)))
             except Exception as e:
                 print(f"Balance fetch timeout or error: {e}")
                 time.sleep(2)
@@ -161,41 +161,43 @@ try:
                     vwap_bid_price_status = weighted_bid_sum_status / ask_qty_status
                 vwap_spread = (lowest_ask - vwap_bid_price_status) / lowest_ask
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                # Build custom position status string
-                pos_status = "None"
-                if position is not None:
-                    entry_price = float(position['entry'])
-                    # Calculate weighted cover bid for position size
-                    needed_qty = position['qty']
-                    cumulative_qty = Decimal('0')
-                    weighted_bid_sum = Decimal('0')
-                    for bid_price, bid_qty in bids:
-                        bid_price_dec = Decimal(str(bid_price))
-                        bid_qty_dec = Decimal(str(bid_qty))
-                        if cumulative_qty + bid_qty_dec >= needed_qty:
-                            fill_qty = needed_qty - cumulative_qty
-                            weighted_bid_sum += bid_price_dec * fill_qty
-                            cumulative_qty += fill_qty
-                            break
+                # Build custom positions status string
+                if positions:
+                    pos_statuses = []
+                    for pos in positions:
+                        entry_price = float(pos['entry'])
+                        needed_qty = pos['qty']
+                        cumulative_qty = Decimal('0')
+                        weighted_bid_sum = Decimal('0')
+                        for bid_price, bid_qty in bids:
+                            bid_price_dec = Decimal(str(bid_price))
+                            bid_qty_dec = Decimal(str(bid_qty))
+                            if cumulative_qty + bid_qty_dec >= needed_qty:
+                                fill_qty = needed_qty - cumulative_qty
+                                weighted_bid_sum += bid_price_dec * fill_qty
+                                cumulative_qty += fill_qty
+                                break
+                            else:
+                                weighted_bid_sum += bid_price_dec * bid_qty_dec
+                                cumulative_qty += bid_qty_dec
+                        if cumulative_qty == 0:
+                            cover_bid = float(bids[0][0])
                         else:
-                            weighted_bid_sum += bid_price_dec * bid_qty_dec
-                            cumulative_qty += bid_qty_dec
-                    if cumulative_qty == 0:
-                        cover_bid = float(bids[0][0])
-                    else:
-                        cover_bid = float(weighted_bid_sum / needed_qty)
-                    # Calculate thresholds
-                    lower_thresh = float(entry_price * (1 - 0.002 + float(position['ratchet'])))
-                    upper_thresh = float(entry_price * (1 + float(position['ratchet'])))
-                    usd_value = float(position['qty']) * entry_price
-                    pos_status = f"entry: {entry_price:.2f} (USD value: {usd_value:.2f}), lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, current: {cover_bid:.2f}"
+                            cover_bid = float(weighted_bid_sum / needed_qty)
+                        lower_thresh = float(entry_price * (1 + float(pos['ratchet']) - 0.002))
+                        upper_thresh = float(entry_price * (1 + float(pos['ratchet'])))
+                        usd_value = float(pos['qty']) * entry_price
+                        pos_statuses.append(f"entry: {entry_price:.2f} (USD value: {usd_value:.2f}), lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, current: {cover_bid:.2f}")
+                    pos_status = ' | '.join(pos_statuses)
+                else:
+                    pos_status = "None"
                 status_msg = f"[{now_str}] Status: USD={usd_balance:.2f}, spread={vwap_spread*100:.4f}%, position={pos_status}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
 
             # Updated entry logic: use VWAP of cumulative bids to cover lowest ask size
-            if position is None:
+            # Always consider new entries
                 ask_qty = Decimal(str(asks[0][1]))
                 cumulative_bid_qty = Decimal('0')
                 weighted_bid_sum = Decimal('0')
@@ -231,12 +233,11 @@ try:
                         print(msg)
                         logging.info(msg)
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                        position = {
+                        positions.append({
                             'entry': lowest_ask,
                             'qty': buy_qty,
                             'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                        }
-                        sell_trigger = position['entry'] * (Decimal('1.0') - Decimal('0.002'))  # -0.2% stop
+                        })
                         # Update stats
                         stats['entries'] += 1
                         stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
@@ -245,9 +246,10 @@ try:
                 # ...removed debug entry logger...
 
             # Sell and ratcheting logic
-            if position is not None:
-                # Calculate weighted cover bid for position size
-                needed_qty = position['qty']
+            # Manage all open positions
+            new_positions = []
+            for pos in positions:
+                needed_qty = pos['qty']
                 cumulative_qty = Decimal('0')
                 weighted_bid_sum = Decimal('0')
                 for bid_price, bid_qty in bids:
@@ -266,31 +268,29 @@ try:
                 else:
                     cover_bid = weighted_bid_sum / needed_qty
 
-                # Calculate current stop and ratchet levels
-                entry_price = position['entry']
-                ratchet_level = entry_price * (Decimal('1.0') + position['ratchet'])
+                entry_price = pos['entry']
+                ratchet_level = entry_price * (Decimal('1.0') + pos['ratchet'])
                 lower_thresh = entry_price * (Decimal('1.0') - Decimal('0.002'))
 
                 # Ratchet up if cover_bid > ratchet_level
                 if cover_bid > ratchet_level:
-                    # Move stop up by 0.1% increments from entry
-                    position['ratchet'] += Decimal('0.001')
-                    lower_thresh = entry_price * (Decimal('1.0') + position['ratchet'] - Decimal('0.002'))
-                    msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{position['ratchet']*100:.2f}% of entry)"
+                    pos['ratchet'] += Decimal('0.001')
+                    lower_thresh = entry_price * (Decimal('1.0') + pos['ratchet'] - Decimal('0.002'))
+                    msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{pos['ratchet']*100:.2f}% of entry)"
                     logging.info(msg)
 
                 # Diagnostic logging for sell condition
-                print(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={position}")
-                logging.info(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={position}")
+                print(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={pos}")
+                logging.info(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={pos}")
                 # If cover_bid drops to or below lower_thresh, sell
                 if cover_bid <= lower_thresh:
                     print(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
                     logging.info(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
                     exit_price = cover_bid
-                    qty = position['qty']
+                    qty = pos['qty']
                     pnl_usd = (exit_price - entry_price) * qty
                     pnl_pct = ((exit_price - entry_price) / entry_price) * 100
-                    msg = f"EXIT: Market sell {qty} BNB at {exit_price} USD (entry: {entry_price}, ratchet: {position['ratchet']*100:.2f}%)"
+                    msg = f"EXIT: Market sell {qty} BNB at {exit_price} USD (entry: {entry_price}, ratchet: {pos['ratchet']*100:.2f}%)"
                     print(msg)
                     logging.info(msg)
                     ntfy_msg = f"Position exited\nP/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
@@ -302,8 +302,9 @@ try:
                     # Update stats
                     stats['exits'] += 1
                     stats['last_exit'] = f"{qty} BNB at {exit_price} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                    position = None
-                    sell_trigger = None
+                    continue  # Do not keep this position
+                new_positions.append(pos)
+            positions = new_positions
 
             last_price = price
         except Exception as e:
