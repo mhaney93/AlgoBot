@@ -133,56 +133,60 @@ try:
             now = time.time()
             if last_logged_price is None:
                 last_logged_price = price
+            price_moved = False
             if price != last_logged_price:
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 move_dir = '+' if price > last_logged_price else '-'
                 move_msg = f"[{now_str}] Price move: {move_dir} {last_logged_price} -> {price}"
                 print(move_msg)
                 logging.info(move_msg)
-                # Entry logic on price move
-                # Calculate VWAP bid price for ask_qty (same as entry logic)
-                ask_qty = Decimal(str(asks[0][1]))
-                cumulative_bid_qty = Decimal('0')
-                weighted_bid_sum = Decimal('0')
-                for bid_price, bid_qty in bids:
-                    bid_price_dec = Decimal(str(bid_price))
-                    bid_qty_dec = Decimal(str(bid_qty))
-                    if cumulative_bid_qty + bid_qty_dec >= ask_qty:
-                        needed_qty = ask_qty - cumulative_bid_qty
-                        weighted_bid_sum += bid_price_dec * needed_qty
-                        cumulative_bid_qty += needed_qty
-                        break
-                    else:
-                        weighted_bid_sum += bid_price_dec * bid_qty_dec
-                        cumulative_bid_qty += bid_qty_dec
-                if cumulative_bid_qty == 0:
-                    vwap_bid_price = Decimal(str(bids[0][0]))
-                else:
-                    vwap_bid_price = weighted_bid_sum / ask_qty
-                entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
-                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={last_logged_price}, price={price}, price_increased={price > last_logged_price if last_logged_price is not None else 'N/A'} (on price move)")
-                if entry_spread < SPREAD_THRESHOLD and last_logged_price is not None and price > last_logged_price:
-                    max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
-                    buy_qty = min(ask_qty, max_qty)
-                    if buy_qty > 0:
-                        minus_02 = lowest_ask * Decimal('0.998')
-                        plus_01 = lowest_ask * Decimal('1.001')
-                        msg = (
-                            f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
-                            f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
-                        )
-                        print(msg)
-                        logging.info(msg)
-                        order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                        positions.append({
-                            'entry': lowest_ask,
-                            'qty': buy_qty,
-                            'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                        })
-                        # Update stats
-                        stats['entries'] += 1
-                        stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                price_moved = True
                 last_logged_price = price
+
+            # Entry logic: check every loop, but only log diagnostics on price move or actual buy
+            ask_qty = Decimal(str(asks[0][1]))
+            cumulative_bid_qty = Decimal('0')
+            weighted_bid_sum = Decimal('0')
+            for bid_price, bid_qty in bids:
+                bid_price_dec = Decimal(str(bid_price))
+                bid_qty_dec = Decimal(str(bid_qty))
+                if cumulative_bid_qty + bid_qty_dec >= ask_qty:
+                    needed_qty = ask_qty - cumulative_bid_qty
+                    weighted_bid_sum += bid_price_dec * needed_qty
+                    cumulative_bid_qty += needed_qty
+                    break
+                else:
+                    weighted_bid_sum += bid_price_dec * bid_qty_dec
+                    cumulative_bid_qty += bid_qty_dec
+            if cumulative_bid_qty == 0:
+                vwap_bid_price = Decimal(str(bids[0][0]))
+            else:
+                vwap_bid_price = weighted_bid_sum / ask_qty
+            entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
+            # Only log entry diagnostics on price move
+            if price_moved:
+                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={last_logged_price}, price={price}, price_increased={price > last_logged_price if last_logged_price is not None else 'N/A'} (on price move)")
+            if entry_spread < SPREAD_THRESHOLD and last_logged_price is not None and price > last_logged_price:
+                max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
+                buy_qty = min(ask_qty, max_qty)
+                if buy_qty > 0:
+                    minus_02 = lowest_ask * Decimal('0.998')
+                    plus_01 = lowest_ask * Decimal('1.001')
+                    msg = (
+                        f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
+                        f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
+                    )
+                    print(msg)
+                    logging.info(msg)
+                    order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                    positions.append({
+                        'entry': lowest_ask,
+                        'qty': buy_qty,
+                        'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
+                    })
+                    # Update stats
+                    stats['entries'] += 1
+                    stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
             # Status log every 10 seconds (VWAP-based spread)
             if now - last_status_log > 10:
                 # Calculate VWAP bid price for ask_qty (same as entry logic)
