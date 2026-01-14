@@ -171,30 +171,31 @@ try:
                 vwap_bid_price = weighted_bid_sum / ask_qty
             entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
             # ...removed [DIAG][ENTRY] diagnostic logging...
-            # Only buy if we have a previous price and price has increased
-            if prev_diff_price is not None and entry_spread < SPREAD_THRESHOLD and price > prev_diff_price:
-                max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
-                buy_qty = min(ask_qty, max_qty)
-                min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
-                notional_value = buy_qty * lowest_ask
-                if buy_qty > 0 and notional_value >= min_notional:
-                    minus_02 = lowest_ask * Decimal('0.998')
-                    plus_01 = lowest_ask * Decimal('1.001')
-                    msg = (
-                        f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
-                        f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
-                    )
-                    print(msg)
-                    logging.info(msg)
-                    order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                    positions.append({
-                        'entry': lowest_ask,
-                        'qty': buy_qty,
-                        'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                    })
-                    # Update stats
-                    stats['entries'] += 1
-                    stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+            # Buy if the latest price change is positive and the current spread is < threshold
+            if prev_diff_price is not None and price > prev_diff_price:
+                if entry_spread < SPREAD_THRESHOLD:
+                    max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
+                    buy_qty = min(ask_qty, max_qty)
+                    min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
+                    notional_value = buy_qty * lowest_ask
+                    if buy_qty > 0 and notional_value >= min_notional:
+                        minus_02 = lowest_ask * Decimal('0.998')
+                        plus_01 = lowest_ask * Decimal('1.001')
+                        msg = (
+                            f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
+                            f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
+                        )
+                        print(msg)
+                        logging.info(msg)
+                        order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                        positions.append({
+                            'entry': lowest_ask,
+                            'qty': buy_qty,
+                            'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
+                        })
+                        # Update stats
+                        stats['entries'] += 1
+                        stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
                 # ...do not log skipped buys under min notional...
             # Status log every 10 seconds (VWAP-based spread)
             if now - last_status_log > 10:
