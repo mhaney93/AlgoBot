@@ -170,13 +170,13 @@ try:
             else:
                 vwap_bid_price = weighted_bid_sum / ask_qty
             entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
-            # Only log entry diagnostics on price move
-            if price_moved:
-                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={prev_logged_price}, price={price}, price_increased={price > prev_logged_price if prev_logged_price is not None else 'N/A'} (on price move)")
+            # ...removed [DIAG][ENTRY] diagnostic logging...
             if entry_spread < SPREAD_THRESHOLD and price >= prev_diff_price:
                 max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                 buy_qty = min(ask_qty, max_qty)
-                if buy_qty > 0:
+                min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
+                notional_value = buy_qty * lowest_ask
+                if buy_qty > 0 and notional_value >= min_notional:
                     minus_02 = lowest_ask * Decimal('0.998')
                     plus_01 = lowest_ask * Decimal('1.001')
                     msg = (
@@ -194,6 +194,7 @@ try:
                     # Update stats
                     stats['entries'] += 1
                     stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                # ...do not log skipped buys under min notional...
             # Status log every 10 seconds (VWAP-based spread)
             if now - last_status_log > 10:
                 # Calculate VWAP bid price for ask_qty (same as entry logic)
