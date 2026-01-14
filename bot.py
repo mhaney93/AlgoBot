@@ -219,32 +219,42 @@ try:
 
             # Sell and ratcheting logic
             if position is not None:
-                # Find the highest bid that covers the position size
-                cover_bid = None
-                running_qty = Decimal('0')
+                # Calculate weighted cover bid for position size
+                needed_qty = position['qty']
+                cumulative_qty = Decimal('0')
+                weighted_bid_sum = Decimal('0')
                 for bid_price, bid_qty in bids:
-                    running_qty += Decimal(str(bid_qty))
-                    if running_qty >= position['qty']:
-                        cover_bid = Decimal(str(bid_price))
+                    bid_price_dec = Decimal(str(bid_price))
+                    bid_qty_dec = Decimal(str(bid_qty))
+                    if cumulative_qty + bid_qty_dec >= needed_qty:
+                        fill_qty = needed_qty - cumulative_qty
+                        weighted_bid_sum += bid_price_dec * fill_qty
+                        cumulative_qty += fill_qty
                         break
-                if cover_bid is None:
-                    cover_bid = highest_bid
+                    else:
+                        weighted_bid_sum += bid_price_dec * bid_qty_dec
+                        cumulative_qty += bid_qty_dec
+                if cumulative_qty == 0:
+                    cover_bid = Decimal(str(bids[0][0]))
+                else:
+                    cover_bid = weighted_bid_sum / needed_qty
 
-                # Ratchet up if cover_bid > entry + ratchet
-                ratchet_price = position['entry'] * (Decimal('1.0') + position['ratchet'])
-                if cover_bid > ratchet_price:
-                    position['ratchet'] += Decimal('0.001')  # move up by 0.1%
-                    msg = f"RATCHET: Stop moved to +{position['ratchet']*100:.2f}% of entry."
+                # Calculate current stop and ratchet levels
+                entry_price = position['entry']
+                ratchet_level = entry_price * (Decimal('1.0') + position['ratchet'])
+                stop_level = entry_price * (Decimal('1.0') - Decimal('0.002'))
+
+                # Ratchet up if cover_bid > ratchet_level
+                if cover_bid > ratchet_level:
+                    # Move stop up by 0.1% increments from entry
+                    position['ratchet'] += Decimal('0.001')
+                    stop_level = entry_price * (Decimal('1.0') + position['ratchet'] - Decimal('0.002'))
+                    msg = f"RATCHET: Stop moved to {stop_level:.4f} (+{position['ratchet']*100:.2f}% of entry)"
                     logging.info(msg)
 
-                # Update sell_trigger to new ratchet level
-                sell_trigger = position['entry'] * (Decimal('1.0') + position['ratchet'])
-
-                # If cover_bid drops to or below sell_trigger, sell
-                if cover_bid <= sell_trigger:
-                    # Calculate P/L
+                # If cover_bid drops to or below stop_level, sell
+                if cover_bid <= stop_level:
                     exit_price = cover_bid
-                    entry_price = position['entry']
                     qty = position['qty']
                     pnl_usd = (exit_price - entry_price) * qty
                     pnl_pct = ((exit_price - entry_price) / entry_price) * 100
