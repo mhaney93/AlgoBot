@@ -220,6 +220,7 @@ try:
                 entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
                 # Only enter if spread < threshold and price increased
                 debug_entry = False
+                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={last_price}, price={price}, price_increased={price > last_price if last_price is not None else 'N/A'}")
                 if entry_spread < SPREAD_THRESHOLD and last_price is not None and price > last_price:
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
