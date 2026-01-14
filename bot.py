@@ -187,7 +187,8 @@ try:
                     # Calculate thresholds
                     lower_thresh = float(entry_price * (1 - 0.002 + float(position['ratchet'])))
                     upper_thresh = float(entry_price * (1 + float(position['ratchet'])))
-                    pos_status = f"entry: {entry_price:.2f}, lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, current: {cover_bid:.2f}"
+                    usd_value = float(position['qty']) * entry_price
+                    pos_status = f"entry: {entry_price:.2f} (USD value: {usd_value:.2f}), lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, current: {cover_bid:.2f}"
                 status_msg = f"[{now_str}] Status: USD={usd_balance:.2f}, spread={vwap_spread*100:.4f}%, position={pos_status}"
                 print(status_msg)
                 logging.info(status_msg)
@@ -268,21 +269,23 @@ try:
                 # Calculate current stop and ratchet levels
                 entry_price = position['entry']
                 ratchet_level = entry_price * (Decimal('1.0') + position['ratchet'])
-                stop_level = entry_price * (Decimal('1.0') - Decimal('0.002'))
+                lower_thresh = entry_price * (Decimal('1.0') - Decimal('0.002'))
 
                 # Ratchet up if cover_bid > ratchet_level
                 if cover_bid > ratchet_level:
                     # Move stop up by 0.1% increments from entry
                     position['ratchet'] += Decimal('0.001')
-                    stop_level = entry_price * (Decimal('1.0') + position['ratchet'] - Decimal('0.002'))
-                    msg = f"RATCHET: Stop moved to {stop_level:.4f} (+{position['ratchet']*100:.2f}% of entry)"
+                    lower_thresh = entry_price * (Decimal('1.0') + position['ratchet'] - Decimal('0.002'))
+                    msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{position['ratchet']*100:.2f}% of entry)"
                     logging.info(msg)
 
                 # Diagnostic logging for sell condition
-                print(f"[DIAG][SELL] cover_bid={cover_bid:.4f}, stop_level={stop_level:.4f}")
-                logging.info(f"[DIAG][SELL] cover_bid={cover_bid:.4f}, stop_level={stop_level:.4f}")
-                # If cover_bid drops to or below stop_level, sell
-                if cover_bid <= stop_level:
+                print(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={position}")
+                logging.info(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f}, lower_thresh={lower_thresh:.4f}, position={position}")
+                # If cover_bid drops to or below lower_thresh, sell
+                if cover_bid <= lower_thresh:
+                    print(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
+                    logging.info(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
                     exit_price = cover_bid
                     qty = position['qty']
                     pnl_usd = (exit_price - entry_price) * qty
