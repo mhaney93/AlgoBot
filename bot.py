@@ -173,7 +173,7 @@ try:
             # Only log entry diagnostics on price move
             if price_moved:
                 print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={prev_logged_price}, price={price}, price_increased={price > prev_logged_price if prev_logged_price is not None else 'N/A'} (on price move)")
-            if entry_spread < SPREAD_THRESHOLD and price > prev_diff_price:
+            if entry_spread < SPREAD_THRESHOLD and price >= prev_diff_price:
                 max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                 buy_qty = min(ask_qty, max_qty)
                 if buy_qty > 0:
@@ -337,13 +337,10 @@ try:
                     logging.info(msg)
 
                 # Enhanced diagnostic logging for sell condition
-                print(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f} (type={type(cover_bid)} repr={repr(cover_bid)}), lower_thresh={lower_thresh:.4f} (type={type(lower_thresh)} repr={repr(lower_thresh)}), position={pos}")
-                logging.info(f"[DIAG][SELL] (pre-check) cover_bid={cover_bid:.4f} (type={type(cover_bid)} repr={repr(cover_bid)}), lower_thresh={lower_thresh:.4f} (type={type(lower_thresh)} repr={repr(lower_thresh)}), position={pos}")
+                # ...removed [DIAG][SELL] diagnostic logging...
                 # If cover_bid drops to or below lower_thresh, sell
                 if cover_bid <= lower_thresh:
-                    print(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
-                    logging.info(f"[DIAG][SELL] (triggered) cover_bid={cover_bid:.4f} <= lower_thresh={lower_thresh:.4f}, SELLING!")
-                    print(f"[DEBUG][SELL] cover_bid={cover_bid} (type={type(cover_bid)}), lower_thresh={lower_thresh} (type={type(lower_thresh)})")
+                    # ...removed [DIAG][SELL] diagnostic logging...
                     exit_price = cover_bid
                     qty = pos['qty']
                     pnl_usd = (exit_price - entry_price) * qty
