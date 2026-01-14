@@ -133,7 +133,9 @@ try:
             now = time.time()
             if last_logged_price is None:
                 last_logged_price = price
+
             price_moved = False
+            prev_logged_price = last_logged_price
             if price != last_logged_price:
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 move_dir = '+' if price > last_logged_price else '-'
@@ -165,8 +167,8 @@ try:
             entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
             # Only log entry diagnostics on price move
             if price_moved:
-                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={last_logged_price}, price={price}, price_increased={price > last_logged_price if last_logged_price is not None else 'N/A'} (on price move)")
-            if entry_spread < SPREAD_THRESHOLD and last_logged_price is not None and price > last_logged_price:
+                print(f"[DIAG][ENTRY] entry_spread={entry_spread:.6f}, SPREAD_THRESHOLD={SPREAD_THRESHOLD:.6f}, last_price={prev_logged_price}, price={price}, price_increased={price > prev_logged_price if prev_logged_price is not None else 'N/A'} (on price move)")
+            if entry_spread < SPREAD_THRESHOLD and prev_logged_price is not None and price > prev_logged_price:
                 max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                 buy_qty = min(ask_qty, max_qty)
                 if buy_qty > 0:
