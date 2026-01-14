@@ -171,9 +171,14 @@ try:
                 vwap_bid_price = weighted_bid_sum / ask_qty
             entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
             # ...removed [DIAG][ENTRY] diagnostic logging...
-            # Buy if the latest price change is positive and the current spread is < threshold
-            if prev_diff_price is not None and price > prev_diff_price:
-                if entry_spread < SPREAD_THRESHOLD:
+            # Allow repeated buys after a positive price change, as long as spread remains < threshold
+            if prev_diff_price is not None:
+                if price > prev_diff_price:
+                    buy_trigger_active = True
+                elif price < prev_diff_price:
+                    buy_trigger_active = False
+                # If buy trigger is active and spread is favorable, keep buying
+                if 'buy_trigger_active' in locals() and buy_trigger_active and entry_spread < SPREAD_THRESHOLD:
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
                     min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
