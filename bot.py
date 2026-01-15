@@ -345,7 +345,11 @@ try:
                     msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{pos['ratchet']*100:.2f}% of entry)"
                     logging.info(msg)
 
+                # Diagnostic logging for sell check
+                print(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={lower_thresh:.6f}, entry_price={entry_price:.6f}, qty={pos['qty']}")
+                logging.info(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={lower_thresh:.6f}, entry_price={entry_price:.6f}, qty={pos['qty']}")
                 # If cover_bid drops to or below lower_thresh, sell
+                
                 if cover_bid <= lower_thresh:
                     exit_price = cover_bid
                     qty = pos['qty']
