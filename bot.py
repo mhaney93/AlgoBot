@@ -51,6 +51,7 @@ stats = {
 
 def send_daily_update():
     while True:
+        print("[DIAG] Starting new loop iteration.")
         now = datetime.datetime.now()
         # Calculate next 8am
         next_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
@@ -96,8 +97,10 @@ try:
             # Save previous price before fetching new one
             prev_price = last_price
 
+            print("[DIAG] Fetching order book...")
             try:
                 order_book = exchange.fetch_order_book(SYMBOL, limit=10)
+                print("[DIAG] Order book fetched.")
             except Exception as e:
                 print(f"Order book fetch timeout or error: {e}")
                 time.sleep(2)
@@ -112,18 +115,22 @@ try:
             lowest_ask = Decimal(str(asks[0][0]))
             spread = (lowest_ask - highest_bid) / lowest_ask
 
+            print("[DIAG] Fetching ticker...")
             try:
                 ticker = exchange.fetch_ticker(SYMBOL)
                 price = Decimal(str(ticker['last']))
+                print("[DIAG] Ticker fetched.")
             except Exception as e:
                 print(f"Ticker fetch timeout or error: {e}")
                 time.sleep(2)
                 continue
             last_price = price
 
+            print("[DIAG] Fetching balance...")
             try:
                 balance = exchange.fetch_balance()
                 usd_balance = Decimal(str(balance['free'].get('USD', 0)))
+                print("[DIAG] Balance fetched.")
             except Exception as e:
                 print(f"Balance fetch timeout or error: {e}")
                 time.sleep(2)
@@ -361,8 +368,10 @@ try:
                         requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=1)
                     except Exception as e:
                         logging.warning(f"ntfy notification failed: {e}")
+                    print("[DIAG] Creating market sell order...")
                     try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                        print("[DIAG] Market sell order created.")
                     except Exception as e:
                         print(f"Error: {e}")
                         logging.error(f"Sell order failed: {e}")
