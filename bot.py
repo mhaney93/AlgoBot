@@ -333,27 +333,27 @@ try:
                 else:
                     cover_bid = float(weighted_bid_sum / needed_qty)
 
-                entry_price = float(pos['entry'])
-                ratchet_level = entry_price * (1.0 + float(pos['ratchet']))
-                lower_thresh = entry_price * (1.0 + float(pos['ratchet']) - 0.002)
+                entry_price = Decimal(str(pos['entry']))
+                ratchet_level = entry_price * (Decimal('1.0') + Decimal(str(pos['ratchet'])))
+                lower_thresh = entry_price * (Decimal('1.0') + Decimal(str(pos['ratchet'])) - Decimal('0.002'))
 
                 # Ratchet up if cover_bid > ratchet_level
-                if cover_bid > ratchet_level:
+                if Decimal(str(cover_bid)) > ratchet_level:
                     pos['ratchet'] += Decimal('0.001')
-                    lower_thresh = entry_price * (Decimal('1.0') + pos['ratchet'] - Decimal('0.002'))
-                    msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{pos['ratchet']*100:.2f}% of entry)"
+                    lower_thresh = entry_price * (Decimal('1.0') + Decimal(str(pos['ratchet'])) - Decimal('0.002'))
+                    msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{float(pos['ratchet'])*100:.2f}% of entry)"
                     logging.info(msg)
 
                 # Diagnostic logging for sell check
-                print(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={lower_thresh:.6f}, entry_price={entry_price:.6f}, qty={pos['qty']}")
-                logging.info(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={lower_thresh:.6f}, entry_price={entry_price:.6f}, qty={pos['qty']}")
+                print(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={float(lower_thresh):.6f}, entry_price={float(entry_price):.6f}, qty={pos['qty']}")
+                logging.info(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={float(lower_thresh):.6f}, entry_price={float(entry_price):.6f}, qty={pos['qty']}")
                 # If cover_bid drops to or below lower_thresh, sell (rounded to 2 decimals)
-                if round(cover_bid, 2) <= round(lower_thresh, 2):
-                    exit_price = cover_bid
+                if round(Decimal(str(cover_bid)), 2) <= round(lower_thresh, 2):
+                    exit_price = Decimal(str(cover_bid))
                     qty = pos['qty']
                     pnl_usd = (exit_price - entry_price) * qty
-                    pnl_pct = ((exit_price - entry_price) / entry_price) * 100
-                    msg = f"EXIT: Market sell {qty} BNB at {exit_price} USD (entry: {entry_price}, ratchet: {pos['ratchet']*100:.2f}%)"
+                    pnl_pct = ((exit_price - entry_price) / entry_price) * Decimal('100')
+                    msg = f"EXIT: Market sell {qty} BNB at {float(exit_price)} USD (entry: {float(entry_price)}, ratchet: {float(pos['ratchet'])*100:.2f}%)"
                     print(msg)
                     logging.info(msg)
                     ntfy_msg = f"Position exited\nP/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
@@ -368,7 +368,7 @@ try:
                         logging.error(f"Sell order failed: {e}")
                     # Update stats
                     stats['exits'] += 1
-                    stats['last_exit'] = f"{qty} BNB at {exit_price} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                    stats['last_exit'] = f"{qty} BNB at {float(exit_price)} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
                     # Always remove this position after a sell attempt
                 else:
                     new_positions.append(pos)
