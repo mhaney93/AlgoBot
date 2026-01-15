@@ -442,5 +442,4 @@ except KeyboardInterrupt:
             break
         except Exception as e:
             logging.warning(f"Shutdown notification attempt {attempt+1} failed: {e}")
-            print(f"Shutdown notification attempt {attempt+1} failed: {e}")
             time.sleep(1)
