@@ -47,6 +47,8 @@ stats = {
     'exits': 0,
     'last_entry': None,
     'last_exit': None,
+    'pl_usd': Decimal('0'),
+    'pl_pct': Decimal('0'),
 }
 
 def send_daily_update():
@@ -58,13 +60,10 @@ def send_daily_update():
             next_8am += datetime.timedelta(days=1)
         wait_seconds = (next_8am - now).total_seconds()
         time.sleep(wait_seconds)
-        # Compose and send update
+        # Compose and send update (P/L only)
         msg = (
             f"[24h Update]\n"
-            f"Entries: {stats['entries']}\n"
-            f"Exits: {stats['exits']}\n"
-            f"Last Entry: {stats['last_entry']}\n"
-            f"Last Exit: {stats['last_exit']}\n"
+            f"P/L: {stats['pl_usd']:.2f} USD ({stats['pl_pct']:.2f}%)"
         )
         try:
             requests.post(NTFY_URL, data=msg.encode('utf-8'), timeout=5)
@@ -75,6 +74,8 @@ def send_daily_update():
         stats['exits'] = 0
         stats['last_entry'] = None
         stats['last_exit'] = None
+        stats['pl_usd'] = Decimal('0')
+        stats['pl_pct'] = Decimal('0')
 
 # Start daily update thread
 threading.Thread(target=send_daily_update, daemon=True).start()
@@ -366,6 +367,8 @@ try:
                         continue
                     pnl_usd = (exit_price - entry_price) * qty
                     pnl_pct = ((exit_price - entry_price) / entry_price) * Decimal('100')
+                    stats['pl_usd'] += pnl_usd
+                    stats['pl_pct'] += pnl_pct
                     msg = f"EXIT: Market sell {qty} BNB at {float(exit_price)} USD (entry: {float(entry_price)}, ratchet: {float(pos['ratchet'])*100:.2f}%)"
                     print(msg)
                     logging.info(msg)
