@@ -37,12 +37,12 @@ def log_and_notify(message):
     print(message)
     logging.info(message)
     try:
-            # TEMP: Test ntfy notification at startup
-            try:
-                requests.post(NTFY_URL, data="NTFY TEST: AlgoBot notification test at startup.".encode('utf-8'), timeout=2)
-                print("[NTFY TEST] Notification sent.")
-            except Exception as e:
-                print(f"[NTFY TEST] Notification failed: {e}")
+        # TEMP: Test ntfy notification at startup
+        try:
+            requests.post(NTFY_URL, data="NTFY TEST: AlgoBot notification test at startup.".encode('utf-8'), timeout=2)
+            print("[NTFY TEST] Notification sent.")
+        except Exception as e:
+            print(f"[NTFY TEST] Notification failed: {e}")
         requests.post(NTFY_URL, data=message.encode('utf-8'), timeout=1)
     except Exception as e:
         logging.warning(f"ntfy notification failed: {e}")
