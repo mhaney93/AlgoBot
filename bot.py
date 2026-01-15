@@ -369,6 +369,9 @@ try:
                         logging.warning(f"ntfy notification failed: {e}")
                     try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                        # Refresh BNB balance after successful sell
+                        balance = exchange.fetch_balance()
+                        bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
                     except Exception as e:
                         print(f"Error: {e}")
                         logging.error(f"Sell order failed: {e}")
