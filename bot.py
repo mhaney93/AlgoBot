@@ -201,38 +201,49 @@ try:
                     min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
                     notional_value = buy_qty * lowest_ask
                     if buy_qty > 0 and notional_value >= min_notional:
-                        minus_02 = lowest_ask * Decimal('0.998')
-                        plus_01 = lowest_ask * Decimal('1.001')
-                        msg = (
-                            f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
-                            f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
-                        )
-                        print(msg)
-                        logging.info(msg)
-                        order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                        # Try to get actual filled quantity from order response
-                        actual_qty = None
-                        if 'filled' in order:
-                            actual_qty = Decimal(str(order['filled']))
-                        elif 'amount' in order:
-                            actual_qty = Decimal(str(order['amount']))
-                        elif 'fills' in order and isinstance(order['fills'], list) and order['fills']:
-                            # Sum all fill quantities
-                            actual_qty = sum(Decimal(str(fill.get('qty', fill.get('amount', 0)))) for fill in order['fills'])
-                        # Fallback: fetch BNB balance difference if actual_qty is not set or zero
-                        if not actual_qty or actual_qty == 0:
-                            balance_after = exchange.fetch_balance()
-                            bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
-                            # Estimate actual_qty as the change in BNB balance
-                            actual_qty = bnb_balance_after - bnb_balance
-                            # If still zero, fallback to intended buy_qty
-                            if actual_qty <= 0:
-                                actual_qty = buy_qty
-                        positions.append({
-                            'entry': lowest_ask,
-                            'qty': actual_qty,
-                            'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                        })
+                        # Add a small buffer for fees (0.1%)
+                        buffer = Decimal('1.001')
+                        if usd_balance < (min_notional * buffer):
+                            print(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
+                        else:
+                            minus_02 = lowest_ask * Decimal('0.998')
+                            plus_01 = lowest_ask * Decimal('1.001')
+                            msg = (
+                                f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
+                                f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
+                            )
+                            print(msg)
+                            logging.info(msg)
+                            try:
+                                order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                            except Exception as e:
+                                print(f"BUY ERROR: {e}")
+                                logging.error(f"Buy order failed: {e}")
+                                order = None
+                            if order:
+                                # Try to get actual filled quantity from order response
+                                actual_qty = None
+                                if 'filled' in order:
+                                    actual_qty = Decimal(str(order['filled']))
+                                elif 'amount' in order:
+                                    actual_qty = Decimal(str(order['amount']))
+                                elif 'fills' in order and isinstance(order['fills'], list) and order['fills']:
+                                    # Sum all fill quantities
+                                    actual_qty = sum(Decimal(str(fill.get('qty', fill.get('amount', 0)))) for fill in order['fills'])
+                                # Fallback: fetch BNB balance difference if actual_qty is not set or zero
+                                if not actual_qty or actual_qty == 0:
+                                    balance_after = exchange.fetch_balance()
+                                    bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
+                                    # Estimate actual_qty as the change in BNB balance
+                                    actual_qty = bnb_balance_after - bnb_balance
+                                    # If still zero, fallback to intended buy_qty
+                                    if actual_qty <= 0:
+                                        actual_qty = buy_qty
+                                positions.append({
+                                    'entry': lowest_ask,
+                                    'qty': actual_qty,
+                                    'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
+                                })
                         # Update stats
                         stats['entries'] += 1
                         stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
