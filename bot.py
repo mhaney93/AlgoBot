@@ -387,4 +387,7 @@ try:
         time.sleep(2)
 except KeyboardInterrupt:
     print("\n=== AlgoBot is shutting down. ===\n")
-    log_and_notify("AlgoBot has stopped running.")
+    try:
+        log_and_notify("AlgoBot has stopped running.")
+    except Exception as e:
+        print(f"Shutdown notification failed: {e}")
