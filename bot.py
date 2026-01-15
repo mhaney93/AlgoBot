@@ -330,13 +330,13 @@ try:
                         weighted_bid_sum += bid_price_dec * bid_qty_dec
                         cumulative_qty += bid_qty_dec
                 if cumulative_qty == 0:
-                    cover_bid = Decimal(str(bids[0][0]))
+                    cover_bid = float(bids[0][0])
                 else:
-                    cover_bid = weighted_bid_sum / needed_qty
+                    cover_bid = float(weighted_bid_sum / needed_qty)
 
-                entry_price = pos['entry']
-                ratchet_level = entry_price * (Decimal('1.0') + pos['ratchet'])
-                lower_thresh = entry_price * (Decimal('1.0') - Decimal('0.002'))
+                entry_price = float(pos['entry'])
+                ratchet_level = entry_price * (1.0 + float(pos['ratchet']))
+                lower_thresh = entry_price * (1.0 + float(pos['ratchet']) - 0.002)
 
                 # Ratchet up if cover_bid > ratchet_level
                 if cover_bid > ratchet_level:
@@ -348,9 +348,8 @@ try:
                 # Diagnostic logging for sell check
                 print(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={lower_thresh:.6f}, entry_price={entry_price:.6f}, qty={pos['qty']}")
                 logging.info(f"[SELL DIAG] cover_bid={cover_bid:.6f}, lower_thresh={lower_thresh:.6f}, entry_price={entry_price:.6f}, qty={pos['qty']}")
-                # If cover_bid drops to or below lower_thresh, sell
-                
-                if cover_bid <= lower_thresh:
+                # If cover_bid drops to or below lower_thresh, sell (rounded to 2 decimals)
+                if round(cover_bid, 2) <= round(lower_thresh, 2):
                     exit_price = cover_bid
                     qty = pos['qty']
                     pnl_usd = (exit_price - entry_price) * qty
