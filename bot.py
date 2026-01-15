@@ -140,6 +140,7 @@ try:
             price_moved = False
             prev_logged_price = last_logged_price
             prev_diff_price = last_diff_price
+            price_move_time = None
             if price != last_logged_price:
                 now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 move_dir = '+' if price > last_logged_price else '-'
@@ -149,6 +150,7 @@ try:
                 price_moved = True
                 last_logged_price = price
                 last_diff_price = price
+                price_move_time = time.time()
 
             # Entry logic: check every loop, but only log diagnostics on price move or actual buy
             ask_qty = Decimal(str(asks[0][1]))
@@ -175,10 +177,15 @@ try:
             if prev_diff_price is not None:
                 if price > prev_diff_price:
                     buy_trigger_active = True
+                    buy_trigger_time = time.time()
                 elif price < prev_diff_price:
                     buy_trigger_active = False
-                # If buy trigger is active and spread is favorable, keep buying
-                if 'buy_trigger_active' in locals() and buy_trigger_active and entry_spread < SPREAD_THRESHOLD:
+                    buy_trigger_time = None
+                # If buy trigger is active, spread is favorable, and price increase occurred within last 30 seconds, keep buying
+                if (
+                    'buy_trigger_active' in locals() and buy_trigger_active and entry_spread < SPREAD_THRESHOLD and
+                    buy_trigger_time is not None and (time.time() - buy_trigger_time) <= 30
+                ):
                     max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
                     buy_qty = min(ask_qty, max_qty)
                     min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
