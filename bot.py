@@ -385,12 +385,20 @@ try:
                 if round(Decimal(str(cover_bid)), 2) <= round(lower_thresh, 2):
                     exit_price = Decimal(str(cover_bid))
                     qty = pos['qty']
+                    tolerance = Decimal('0.0005')
                     if qty > bnb_balance:
-                        msg = f"SKIP EXIT: Not enough BNB to sell {qty} (balance: {bnb_balance})"
-                        print(msg)
-                        logging.warning(msg)
-                        new_positions.append(pos)
-                        continue
+                        if qty - bnb_balance <= tolerance and bnb_balance > 0:
+                            # Sell the available balance if within tolerance
+                            msg = f"PARTIAL EXIT: Selling available BNB {bnb_balance} instead of {qty} (within tolerance)"
+                            print(msg)
+                            logging.info(msg)
+                            qty = bnb_balance
+                        else:
+                            msg = f"SKIP EXIT: Not enough BNB to sell {qty} (balance: {bnb_balance})"
+                            print(msg)
+                            logging.warning(msg)
+                            new_positions.append(pos)
+                            continue
                     pnl_usd = (exit_price - entry_price) * qty
                     pnl_pct = ((exit_price - entry_price) / entry_price) * Decimal('100')
                     stats['pl_usd'] += pnl_usd
