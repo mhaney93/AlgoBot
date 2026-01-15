@@ -193,9 +193,10 @@ try:
                         print(msg)
                         logging.info(msg)
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                        actual_qty = Decimal(str(order.get('filled', order.get('amount', buy_qty))))
                         positions.append({
                             'entry': lowest_ask,
-                            'qty': buy_qty,
+                            'qty': actual_qty,
                             'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
                         })
                         # Update stats
