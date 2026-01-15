@@ -87,7 +87,16 @@ last_status_log = 0
 
 try:
     print("\n=== AlgoBot is starting up! ===\n")
-    log_and_notify("AlgoBot has started running.")
+    startup_msg = "AlgoBot has started running."
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            log_and_notify(startup_msg)
+            break
+        except Exception as e:
+            logging.warning(f"Startup notification attempt {attempt+1} failed: {e}")
+            print(f"Startup notification attempt {attempt+1} failed: {e}")
+            time.sleep(1)
     last_move = ' '
     last_price_seen = None
     last_logged_price = None
