@@ -233,6 +233,7 @@ try:
                         needed_qty = pos['qty']
                         cumulative_qty = Decimal('0')
                         weighted_bid_sum = Decimal('0')
+                        # Use same cover_bid calculation as sell logic
                         for bid_price, bid_qty in bids:
                             bid_price_dec = Decimal(str(bid_price))
                             bid_qty_dec = Decimal(str(bid_qty))
@@ -358,11 +359,15 @@ try:
                         requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=1)
                     except Exception as e:
                         logging.warning(f"ntfy notification failed: {e}")
-                    order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                    try:
+                        order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                    except Exception as e:
+                        print(f"Error: {e}")
+                        logging.error(f"Sell order failed: {e}")
                     # Update stats
                     stats['exits'] += 1
                     stats['last_exit'] = f"{qty} BNB at {exit_price} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                    # Do not keep this position
+                    # Always remove this position after a sell attempt
                 else:
                     new_positions.append(pos)
             positions = new_positions
