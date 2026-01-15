@@ -201,7 +201,24 @@ try:
                         print(msg)
                         logging.info(msg)
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                        actual_qty = Decimal(str(order.get('filled', order.get('amount', buy_qty))))
+                        # Try to get actual filled quantity from order response
+                        actual_qty = None
+                        if 'filled' in order:
+                            actual_qty = Decimal(str(order['filled']))
+                        elif 'amount' in order:
+                            actual_qty = Decimal(str(order['amount']))
+                        elif 'fills' in order and isinstance(order['fills'], list) and order['fills']:
+                            # Sum all fill quantities
+                            actual_qty = sum(Decimal(str(fill.get('qty', fill.get('amount', 0)))) for fill in order['fills'])
+                        # Fallback: fetch BNB balance difference if actual_qty is not set or zero
+                        if not actual_qty or actual_qty == 0:
+                            balance_after = exchange.fetch_balance()
+                            bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
+                            # Estimate actual_qty as the change in BNB balance
+                            actual_qty = bnb_balance_after - bnb_balance
+                            # If still zero, fallback to intended buy_qty
+                            if actual_qty <= 0:
+                                actual_qty = buy_qty
                         positions.append({
                             'entry': lowest_ask,
                             'qty': actual_qty,
@@ -400,7 +417,13 @@ try:
         time.sleep(2)
 except KeyboardInterrupt:
     print("\n=== AlgoBot is shutting down. ===\n")
-    try:
-        log_and_notify("AlgoBot has stopped running.")
-    except Exception as e:
-        print(f"Shutdown notification failed: {e}")
+    shutdown_msg = "AlgoBot has stopped running."
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            log_and_notify(shutdown_msg)
+            break
+        except Exception as e:
+            logging.warning(f"Shutdown notification attempt {attempt+1} failed: {e}")
+            print(f"Shutdown notification attempt {attempt+1} failed: {e}")
+            time.sleep(1)
