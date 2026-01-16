@@ -321,7 +321,7 @@ try:
                     pos_status = ' | '.join(pos_statuses)
                 else:
                     pos_status = "None"
-                status_msg = f"[{now_str}] Status: USD={usd_balance:.2f}, spread={vwap_spread*100:.4f}%, position={pos_status}"
+                status_msg = f"[{now_str}] Status: USD={usd_balance:.2f}, spread={vwap_spread:.6f} (decimal), {vwap_spread*100:.4f}% (percent), threshold={SPREAD_THRESHOLD} (decimal), position={pos_status}"
                 print(status_msg)
                 logging.info(status_msg)
                 last_status_log = now
