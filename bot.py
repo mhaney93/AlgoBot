@@ -449,10 +449,10 @@ try:
                             logging.info(msg)
                             qty = bnb_balance
                         else:
-                            msg = f"SKIP EXIT: Not enough BNB to sell {qty} (balance: {bnb_balance})"
+                            msg = f"SKIP EXIT & REMOVE: Not enough BNB to sell {qty} (balance: {bnb_balance}). Removing position."
                             print(msg)
                             logging.warning(msg)
-                            new_positions.append(pos)
+                            # Do NOT add this position to new_positions, effectively removing it
                             continue
                     pnl_usd = (exit_price - entry_price) * qty
                     stats['pl_usd'] += pnl_usd
