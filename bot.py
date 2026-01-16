@@ -198,21 +198,70 @@ try:
                 elif price < prev_diff_price:
                     buy_trigger_active = False
                     buy_trigger_time = None
+                # Diagnostics for buy conditions
+                diagnostics = [
+                    f"[DIAG][BUY] buy_trigger_active: {'buy_trigger_active' in locals() and buy_trigger_active}",
+                    f"[DIAG][BUY] entry_spread: {entry_spread:.6f} (threshold: {SPREAD_THRESHOLD})",
+                    f"[DIAG][BUY] buy_trigger_time: {buy_trigger_time}",
+                    f"[DIAG][BUY] time since trigger: {(time.time() - buy_trigger_time) if buy_trigger_time is not None else 'N/A'}",
+                    f"[DIAG][BUY] usd_balance: {usd_balance}",
+                    f"[DIAG][BUY] ask_qty: {ask_qty}",
+                    f"[DIAG][BUY] max_qty: {(usd_balance * MAX_USD_RATIO) / lowest_ask}",
+                    f"[DIAG][BUY] buy_qty: {min(ask_qty, (usd_balance * MAX_USD_RATIO) / lowest_ask)}",
+                ]
+                print("\n".join(diagnostics))
+                logging.info(" | ".join(diagnostics))
                 # If buy trigger is active, spread is favorable, and price increase occurred within last 30 seconds, keep buying
                 if (
-                    # Detailed diagnostics for buy conditions
-                    diagnostics = [
-                        f"[DIAG][BUY] buy_trigger_active: {'buy_trigger_active' in locals() and buy_trigger_active}",
-                        f"[DIAG][BUY] entry_spread: {entry_spread:.6f} (threshold: {SPREAD_THRESHOLD})",
-                        f"[DIAG][BUY] buy_trigger_time: {buy_trigger_time}",
-                        f"[DIAG][BUY] time since trigger: {(time.time() - buy_trigger_time) if buy_trigger_time is not None else 'N/A'}",
-                        f"[DIAG][BUY] usd_balance: {usd_balance}",
-                        f"[DIAG][BUY] ask_qty: {ask_qty}",
-                        f"[DIAG][BUY] max_qty: {(usd_balance * MAX_USD_RATIO) / lowest_ask}",
-                        f"[DIAG][BUY] buy_qty: {min(ask_qty, (usd_balance * MAX_USD_RATIO) / lowest_ask)}",
-                    ]
-                    print("\n".join(diagnostics))
-                    logging.info(" | ".join(diagnostics))
+                    'buy_trigger_active' in locals() and buy_trigger_active and
+                    entry_spread < SPREAD_THRESHOLD and
+                    buy_trigger_time is not None and (time.time() - buy_trigger_time) <= 30
+                ):
+                    max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
+                    buy_qty = min(ask_qty, max_qty)
+                    min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
+                    notional_value = buy_qty * lowest_ask
+                    print(f"[DIAG][BUY] notional_value: {notional_value}, min_notional: {min_notional}")
+                    logging.info(f"[DIAG][BUY] notional_value: {notional_value}, min_notional: {min_notional}")
+                    if buy_qty <= 0:
+                        print(f"[DIAG][BUY] SKIP: buy_qty <= 0")
+                        logging.info(f"[DIAG][BUY] SKIP: buy_qty <= 0")
+                    elif notional_value < min_notional:
+                        print(f"[DIAG][BUY] SKIP: notional_value < min_notional")
+                        logging.info(f"[DIAG][BUY] SKIP: notional_value < min_notional")
+                    else:
+                        # Add a small buffer for fees (0.1%)
+                        buffer = Decimal('1.001')
+                        if usd_balance < (min_notional * buffer):
+                            print(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
+                            logging.info(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
+                        else:
+                            minus_02 = lowest_ask * Decimal('0.998')
+                            plus_01 = lowest_ask * Decimal('1.001')
+                            msg = (
+                                f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
+                                f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
+                            )
+                            print(msg)
+                            logging.info(msg)
+                            try:
+                                order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                            except Exception as e:
+                                print(f"BUY ERROR: {e}")
+                                logging.error(f"Buy order failed: {e}")
+                                order = None
+                            if order:
+                                # Try to get actual filled quantity from order response
+                                actual_qty = None
+                                if 'filled' in order:
+                                    actual_qty = Decimal(str(order['filled']))
+                                elif 'amount' in order:
+                                    actual_qty = Decimal(str(order['amount']))
+                                elif 'fills' in order and isinstance(order['fills'], list) and order['fills']:
+                                    # Sum all fill quantities
+                                    actual_qty = sum(Decimal(str(fill.get('qty', fill.get('amount', 0)))) for fill in order['fills'])
+                                # Fallback: fetch BNB balance difference if actual_qty is not set or zero
+                else:
                     if not ('buy_trigger_active' in locals() and buy_trigger_active):
                         print("[DIAG][BUY] SKIP: buy_trigger_active is False")
                         logging.info("[DIAG][BUY] SKIP: buy_trigger_active is False")
@@ -222,67 +271,24 @@ try:
                     elif buy_trigger_time is None or (time.time() - buy_trigger_time) > 30:
                         print(f"[DIAG][BUY] SKIP: buy_trigger_time is None or trigger too old")
                         logging.info(f"[DIAG][BUY] SKIP: buy_trigger_time is None or trigger too old")
-                    else:
-                        max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
-                        buy_qty = min(ask_qty, max_qty)
-                        min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
-                        notional_value = buy_qty * lowest_ask
-                        print(f"[DIAG][BUY] notional_value: {notional_value}, min_notional: {min_notional}")
-                        logging.info(f"[DIAG][BUY] notional_value: {notional_value}, min_notional: {min_notional}")
-                        if buy_qty <= 0:
-                            print(f"[DIAG][BUY] SKIP: buy_qty <= 0")
-                            logging.info(f"[DIAG][BUY] SKIP: buy_qty <= 0")
-                        elif notional_value < min_notional:
-                            print(f"[DIAG][BUY] SKIP: notional_value < min_notional")
-                            logging.info(f"[DIAG][BUY] SKIP: notional_value < min_notional")
-                        else:
-                            # Add a small buffer for fees (0.1%)
-                            buffer = Decimal('1.001')
-                            if usd_balance < (min_notional * buffer):
-                                print(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
-                                logging.info(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
-                            else:
-                                minus_02 = lowest_ask * Decimal('0.998')
-                                plus_01 = lowest_ask * Decimal('1.001')
-                                msg = (
-                                    f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
-                                    f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
-                                )
-                                print(msg)
-                                logging.info(msg)
-                                try:
-                                    order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                                except Exception as e:
-                                    print(f"BUY ERROR: {e}")
-                                    logging.error(f"Buy order failed: {e}")
-                                    order = None
-                                if order:
-                                    # Try to get actual filled quantity from order response
-                                    actual_qty = None
-                                    if 'filled' in order:
-                                        actual_qty = Decimal(str(order['filled']))
-                                    elif 'amount' in order:
-                                        actual_qty = Decimal(str(order['amount']))
-                                    elif 'fills' in order and isinstance(order['fills'], list) and order['fills']:
-                                        # Sum all fill quantities
-                                        actual_qty = sum(Decimal(str(fill.get('qty', fill.get('amount', 0)))) for fill in order['fills'])
-                                    # Fallback: fetch BNB balance difference if actual_qty is not set or zero
-                                if not actual_qty or actual_qty == 0:
-                                    balance_after = exchange.fetch_balance()
-                                    bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
-                                    # Estimate actual_qty as the change in BNB balance
-                                    actual_qty = bnb_balance_after - bnb_balance
-                                    # If still zero, fallback to intended buy_qty
-                                    if actual_qty <= 0:
-                                        actual_qty = buy_qty
-                                positions.append({
-                                    'entry': lowest_ask,
-                                    'qty': actual_qty,
-                                    'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                                })
-                        # Update stats
-                        stats['entries'] += 1
-                        stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+            # Fallback: fetch BNB balance difference if actual_qty is not set or zero
+            if 'order' in locals() and order:
+                if not actual_qty or actual_qty == 0:
+                    balance_after = exchange.fetch_balance()
+                    bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
+                    # Estimate actual_qty as the change in BNB balance
+                    actual_qty = bnb_balance_after - bnb_balance
+                    # If still zero, fallback to intended buy_qty
+                    if actual_qty <= 0:
+                        actual_qty = buy_qty
+                positions.append({
+                    'entry': lowest_ask,
+                    'qty': actual_qty,
+                    'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
+                })
+                # Update stats
+                stats['entries'] += 1
+                stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
                 # ...do not log skipped buys under min notional...
             # Status log every 10 seconds (VWAP-based spread)
             if now - last_status_log > 10:
