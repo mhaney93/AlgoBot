@@ -200,19 +200,7 @@ try:
                 elif price < prev_diff_price:
                     buy_trigger_active = False
                     buy_trigger_time = None
-                # Diagnostics for buy conditions
-                diagnostics = [
-                    f"[DIAG][BUY] buy_trigger_active: {'buy_trigger_active' in locals() and buy_trigger_active}",
-                    f"[DIAG][BUY] entry_spread: {entry_spread:.6f} (threshold: {SPREAD_THRESHOLD})",
-                    f"[DIAG][BUY] buy_trigger_time: {buy_trigger_time}",
-                    f"[DIAG][BUY] time since trigger: {(time.time() - buy_trigger_time) if buy_trigger_time is not None else 'N/A'}",
-                    f"[DIAG][BUY] usd_balance: {usd_balance}",
-                    f"[DIAG][BUY] ask_qty: {ask_qty}",
-                    f"[DIAG][BUY] max_qty: {(usd_balance * MAX_USD_RATIO) / lowest_ask}",
-                    f"[DIAG][BUY] buy_qty: {min(ask_qty, (usd_balance * MAX_USD_RATIO) / lowest_ask)}",
-                ]
-                print("\n".join(diagnostics))
-                logging.info(" | ".join(diagnostics))
+                # ...removed [DIAG][BUY] diagnostics...
                 # If buy trigger is active, spread is favorable, and price increase occurred within last 30 seconds, keep buying
                 if (
                     'buy_trigger_active' in locals() and buy_trigger_active and
@@ -223,20 +211,15 @@ try:
                     buy_qty = min(ask_qty, max_qty)
                     min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
                     notional_value = buy_qty * lowest_ask
-                    print(f"[DIAG][BUY] notional_value: {notional_value}, min_notional: {min_notional}")
-                    logging.info(f"[DIAG][BUY] notional_value: {notional_value}, min_notional: {min_notional}")
                     if buy_qty <= 0:
-                        print(f"[DIAG][BUY] SKIP: buy_qty <= 0")
-                        logging.info(f"[DIAG][BUY] SKIP: buy_qty <= 0")
+                        pass
                     elif notional_value < min_notional:
-                        print(f"[DIAG][BUY] SKIP: notional_value < min_notional")
-                        logging.info(f"[DIAG][BUY] SKIP: notional_value < min_notional")
+                        pass
                     else:
                         # Add a small buffer for fees (0.1%)
                         buffer = Decimal('1.001')
                         if usd_balance < (min_notional * buffer):
                             print(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
-                            logging.info(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
                         else:
                             minus_02 = lowest_ask * Decimal('0.998')
                             plus_01 = lowest_ask * Decimal('1.001')
@@ -264,15 +247,7 @@ try:
                                     actual_qty = sum(Decimal(str(fill.get('qty', fill.get('amount', 0)))) for fill in order['fills'])
                                 # Fallback: fetch BNB balance difference if actual_qty is not set or zero
                 else:
-                    if not ('buy_trigger_active' in locals() and buy_trigger_active):
-                        print("[DIAG][BUY] SKIP: buy_trigger_active is False")
-                        logging.info("[DIAG][BUY] SKIP: buy_trigger_active is False")
-                    elif entry_spread >= SPREAD_THRESHOLD:
-                        print(f"[DIAG][BUY] SKIP: entry_spread {entry_spread:.6f} >= threshold {SPREAD_THRESHOLD}")
-                        logging.info(f"[DIAG][BUY] SKIP: entry_spread {entry_spread:.6f} >= threshold {SPREAD_THRESHOLD}")
-                    elif buy_trigger_time is None or (time.time() - buy_trigger_time) > 30:
-                        print(f"[DIAG][BUY] SKIP: buy_trigger_time is None or trigger too old")
-                        logging.info(f"[DIAG][BUY] SKIP: buy_trigger_time is None or trigger too old")
+                    pass
             # Fallback: fetch BNB balance difference if actual_qty is not set or zero
             if 'order' in locals() and order:
                 if not actual_qty or actual_qty == 0:
