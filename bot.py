@@ -421,10 +421,10 @@ try:
                     stats['pl_usd'] += pnl_usd
                     stats['total_entry'] += entry_price * qty
                     stats['total_exit'] += exit_price * qty
+                    pnl_pct = ((exit_price - entry_price) / entry_price) * Decimal('100')
                     msg = f"EXIT: Market sell {qty} BNB at {float(exit_price)} USD (entry: {float(entry_price)}, ratchet: {float(pos['ratchet'])*100:.2f}%)"
                     print(msg)
                     logging.info(msg)
-                    pnl_pct = ((exit_price - entry_price) / entry_price) * Decimal('100')
                     ntfy_msg = f"Position exited\nP/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
                     try:
                         requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=1)
