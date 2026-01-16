@@ -250,12 +250,12 @@ try:
                     pass
             # Fallback: fetch BNB balance difference if actual_qty is not set or zero
             if 'order' in locals() and order:
-                if not actual_qty or actual_qty == 0:
+                if not actual_qty or actual_qty <= 0:
                     balance_after = exchange.fetch_balance()
                     bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
                     # Estimate actual_qty as the change in BNB balance
                     actual_qty = bnb_balance_after - bnb_balance
-                # Only add position if actual_qty is positive and nonzero
+                # Only add position if actual_qty is positive and nonzero, and never use intended buy_qty as fallback
                 if actual_qty and actual_qty > 0:
                     positions.append({
                         'entry': lowest_ask,
@@ -265,7 +265,9 @@ try:
                     # Update stats
                     stats['entries'] += 1
                     stats['last_entry'] = f"{actual_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                # ...do not log skipped buys under min notional...
+                else:
+                    print(f"SKIP POSITION: Unable to determine valid filled quantity for buy order at {lowest_ask} USD.")
+                    logging.warning(f"SKIP POSITION: Unable to determine valid filled quantity for buy order at {lowest_ask} USD.")
             # Status log every 10 seconds (VWAP-based spread)
             if now - last_status_log > 10:
                 # Calculate VWAP bid price for ask_qty (same as entry logic)
