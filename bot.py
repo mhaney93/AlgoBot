@@ -255,17 +255,16 @@ try:
                     bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
                     # Estimate actual_qty as the change in BNB balance
                     actual_qty = bnb_balance_after - bnb_balance
-                    # If still zero, fallback to intended buy_qty
-                    if actual_qty <= 0:
-                        actual_qty = buy_qty
-                positions.append({
-                    'entry': lowest_ask,
-                    'qty': actual_qty,
-                    'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                })
-                # Update stats
-                stats['entries'] += 1
-                stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
+                # Only add position if actual_qty is positive and nonzero
+                if actual_qty and actual_qty > 0:
+                    positions.append({
+                        'entry': lowest_ask,
+                        'qty': actual_qty,
+                        'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
+                    })
+                    # Update stats
+                    stats['entries'] += 1
+                    stats['last_entry'] = f"{actual_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
                 # ...do not log skipped buys under min notional...
             # Status log every 10 seconds (VWAP-based spread)
             if now - last_status_log > 10:
