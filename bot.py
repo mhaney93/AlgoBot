@@ -48,7 +48,8 @@ stats = {
     'last_entry': None,
     'last_exit': None,
     'pl_usd': Decimal('0'),
-    'pl_pct': Decimal('0'),
+    'total_entry': Decimal('0'),
+    'total_exit': Decimal('0'),
 }
 
 def send_daily_update():
@@ -61,9 +62,14 @@ def send_daily_update():
         wait_seconds = (next_8am - now).total_seconds()
         time.sleep(wait_seconds)
         # Compose and send update (P/L only)
+        # Calculate percent P/L based on total entry/exit
+        if stats.get('total_entry', Decimal('0')) > 0:
+            pl_pct = ((stats.get('total_exit', Decimal('0')) - stats.get('total_entry', Decimal('0'))) / stats.get('total_entry', Decimal('0'))) * Decimal('100')
+        else:
+            pl_pct = Decimal('0')
         msg = (
             f"[24h Update]\n"
-            f"P/L: {stats['pl_usd']:.2f} USD ({stats['pl_pct']:.2f}%)"
+            f"P/L: {stats['pl_usd']:.2f} USD ({pl_pct:.2f}%)"
         )
         try:
             requests.post(NTFY_URL, data=msg.encode('utf-8'), timeout=5)
@@ -75,7 +81,8 @@ def send_daily_update():
         stats['last_entry'] = None
         stats['last_exit'] = None
         stats['pl_usd'] = Decimal('0')
-        stats['pl_pct'] = Decimal('0')
+        stats['total_entry'] = Decimal('0')
+        stats['total_exit'] = Decimal('0')
 
 # Start daily update thread
 threading.Thread(target=send_daily_update, daemon=True).start()
@@ -411,9 +418,9 @@ try:
                             new_positions.append(pos)
                             continue
                     pnl_usd = (exit_price - entry_price) * qty
-                    pnl_pct = ((exit_price - entry_price) / entry_price) * Decimal('100')
                     stats['pl_usd'] += pnl_usd
-                    stats['pl_pct'] += pnl_pct
+                    stats['total_entry'] += entry_price * qty
+                    stats['total_exit'] += exit_price * qty
                     msg = f"EXIT: Market sell {qty} BNB at {float(exit_price)} USD (entry: {float(entry_price)}, ratchet: {float(pos['ratchet'])*100:.2f}%)"
                     print(msg)
                     logging.info(msg)
