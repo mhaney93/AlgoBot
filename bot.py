@@ -108,6 +108,8 @@ try:
     last_price_seen = None
     last_logged_price = None
     last_diff_price = None
+    buy_trigger_time = None
+    buy_trigger_active = False
     while True:
         try:
             # Save previous price before fetching new one
