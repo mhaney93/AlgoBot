@@ -253,8 +253,9 @@ try:
                 if not actual_qty or actual_qty <= 0:
                     balance_after = exchange.fetch_balance()
                     bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
-                    # Estimate actual_qty as the change in BNB balance
-                    actual_qty = bnb_balance_after - bnb_balance
+                    # Estimate actual_qty as the change in BNB balance, minus fee buffer
+                    fee_buffer = Decimal('0.000095')  # 0.0095%
+                    actual_qty = (bnb_balance_after - bnb_balance) * (Decimal('1') - fee_buffer)
                 # Only add position if actual_qty is positive and nonzero, and never use intended buy_qty as fallback
                 if actual_qty and actual_qty > 0:
                     positions.append({
@@ -428,8 +429,8 @@ try:
                             msg = f"SKIP EXIT & REMOVE: Not enough BNB to sell {qty} (balance: {bnb_balance}). Removing position."
                             print(msg)
                             logging.warning(msg)
-                            # Do NOT add this position to new_positions, effectively removing it
-                            continue
+                        # Always remove this position after a skip or partial exit
+                        continue
                     pnl_usd = (exit_price - entry_price) * qty
                     stats['pl_usd'] += pnl_usd
                     stats['total_entry'] += entry_price * qty
