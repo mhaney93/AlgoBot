@@ -34,7 +34,7 @@ positions = []  # List of {'entry': Decimal, 'qty': Decimal}
 
 # ntfy notification setup
 NTFY_URL = os.getenv('NTFY_URL', 'https://ntfy.sh/mHaneysAlgoBot')
-start_msg = "=== Minimal AlgoBot is starting up! ==="
+start_msg = "Bot Launched"
 print(f"\n{start_msg}\n")
 logging.info(start_msg)
 try:
@@ -52,8 +52,9 @@ from collections import deque
 # Track price history as (timestamp, price)
 price_history = deque(maxlen=120)  # 120 * 0.5s = 60s, enough for 30s lookback
 
-while True:
-    try:
+try:
+    while True:
+        try:
         # Fetch order book and ticker
         order_book = exchange.fetch_order_book(SYMBOL, limit=10)
         bids = order_book['bids']
@@ -93,16 +94,8 @@ while True:
         bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
 
         # --- Buy logic ---
-        # Only buy if spread < 0.1% and price has increased in the last 30 seconds
-        price_increased = False
-        for t, p in reversed(price_history):
-            if now - t > 30:
-                break
-            if p < price:
-                price_increased = True
-                break
-
-        if spread < Decimal('0.001') and usd_balance > 10 and price_increased:
+        # Buy if spread < 0.1%
+        if spread < Decimal('0.001') and usd_balance > 10:
             ask_qty = Decimal(str(asks[0][1]))
             max_bnb = (usd_balance * Decimal('0.9')) / lowest_ask
             buy_qty = min(ask_qty, max_bnb)
@@ -111,8 +104,9 @@ while True:
                     order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                     filled_qty = Decimal(str(order.get('filled', buy_qty)))
                     positions.append({'entry': lowest_ask, 'qty': filled_qty})
-                    print(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD")
-                    logging.info(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD")
+                    usd_value = filled_qty * lowest_ask
+                    print(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD (Value: {usd_value:.2f} USD)")
+                    logging.info(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD (Value: {usd_value:.2f} USD)")
                 except Exception as e:
                     print(f"Buy error: {e}")
                     logging.error(f"Buy error: {e}")
@@ -165,10 +159,49 @@ while True:
         # --- Status log ---
         now = time.time()
         if now - last_log_time >= LOG_INTERVAL:
-            print(f"USD: {usd_balance:.2f}, BNB: {bnb_balance:.5f}, Price: {price}, Spread: {spread*100:.4f}%")
-            logging.info(f"USD: {usd_balance:.2f}, BNB: {bnb_balance:.5f}, Price: {price}, Spread: {spread*100:.4f}%")
+            print(f"USD: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%")
+            logging.info(f"USD: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%")
+
+            # Positions update
+            if positions:
+                pos_lines = []
+                for pos in positions:
+                    entry = pos.get('entry')
+                    qty = pos.get('qty')
+                    # Find the highest open bid that covers this position's qty
+                    covered_qty = Decimal('0')
+                    highest_covering_bid = None
+                    for bid_price, bid_qty in bids:
+                        bid_price = Decimal(str(bid_price))
+                        bid_qty = Decimal(str(bid_qty))
+                        covered_qty += bid_qty
+                        if covered_qty >= qty:
+                            highest_covering_bid = bid_price
+                            break
+                    if highest_covering_bid is None:
+                        highest_covering_bid = Decimal(str(bids[0][0]))
+                    lower_thresh = entry * Decimal('0.998')  # -0.2%
+                    upper_thresh = entry * Decimal('1.001')  # +0.1%
+                    usd_value = qty * entry
+                    pos_lines.append(
+                        f"Entry: {entry}, Highest Covering Bid: {highest_covering_bid}, -0.2%: {lower_thresh}, +0.1%: {upper_thresh}, Value: {usd_value:.2f} USD"
+                    )
+                pos_update = "Positions: " + "; ".join(pos_lines)
+                print(pos_update)
+                logging.info(pos_update)
+            else:
+                print("Positions: None")
+                logging.info("Positions: None")
             last_log_time = now
         time.sleep(CHECK_INTERVAL)
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(CHECK_INTERVAL)
+except KeyboardInterrupt:
+    shutdown_msg = "Bot Shutdown"
+    print(f"\n{shutdown_msg}\n")
+    logging.info(shutdown_msg)
+    try:
+        requests.post(NTFY_URL, data=shutdown_msg.encode('utf-8'), timeout=3)
     except Exception as e:
-        print(f"Error: {e}")
-        time.sleep(CHECK_INTERVAL)
+        logging.warning(f"ntfy shutdown notification failed: {e}")
