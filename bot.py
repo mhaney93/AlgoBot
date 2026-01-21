@@ -1,6 +1,7 @@
 
 import os
 import time
+from datetime import datetime
 import logging
 from decimal import Decimal
 import ccxt
@@ -103,7 +104,8 @@ try:
                         filled_qty = Decimal(str(order.get('filled', buy_qty)))
                         positions.append({'entry': lowest_ask, 'qty': filled_qty})
                         usd_value = filled_qty * lowest_ask
-                        print(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD (Value: {usd_value:.2f} USD)")
+                        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"[{now_str}] BOUGHT {filled_qty} BNB at {lowest_ask} USD (Value: {usd_value:.2f} USD)")
                         logging.info(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD (Value: {usd_value:.2f} USD)")
                     except Exception as e:
                         print(f"Buy error: {e}")
@@ -139,7 +141,8 @@ try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
                         pnl_usd = (highest_covering_bid - entry) * qty
                         pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
-                        print(f"SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry}) | P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)")
+                        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"[{now_str}] SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry}) | P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)")
                         logging.info(f"SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry}) | P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)")
                         # ntfy notification
                         try:
@@ -156,7 +159,8 @@ try:
 
             # --- Status log ---
             if now - last_log_time >= LOG_INTERVAL:
-                print(f"USD: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%")
+                now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                print(f"[{now_str}] USD: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%")
                 logging.info(f"USD: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%")
 
                 # Positions update
@@ -181,10 +185,10 @@ try:
                         upper_thresh = entry * Decimal('1.001')  # +0.1%
                         usd_value = qty * entry
                         pos_lines.append(
-                            f"Entry: {entry}, Highest Covering Bid: {highest_covering_bid}, -0.2%: {lower_thresh}, +0.1%: {upper_thresh}, Value: {usd_value:.2f} USD"
+                            f"Entry: {entry}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: {usd_value:.2f} USD"
                         )
-                    pos_update = "Positions: " + "; ".join(pos_lines)
-                    print(pos_update)
+                    pos_update = "Positions:\n" + "\n".join(pos_lines)
+                    print(f"[{now_str}]\n" + pos_update)
                     logging.info(pos_update)
                 else:
                     print("Positions: None")
