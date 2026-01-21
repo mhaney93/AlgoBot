@@ -32,11 +32,13 @@ logging.basicConfig(
 
 positions = []  # List of {'entry': Decimal, 'qty': Decimal}
 
+
 # Timing and price history setup
 LOG_INTERVAL = 10  # seconds
 CHECK_INTERVAL = 0.5  # seconds
 from collections import deque
 price_history = deque(maxlen=120)  # 120 * 0.5s = 60s, enough for 30s lookback
+last_log_time = 0
 
 
 # ntfy notification setup
