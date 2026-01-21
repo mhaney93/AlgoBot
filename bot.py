@@ -1,478 +1,174 @@
+
 import os
 import time
 import logging
-import requests
 from decimal import Decimal
 import ccxt
-import threading
-import datetime
+import requests
 from dotenv import load_dotenv
-
 
 # Load environment variables from .env
 load_dotenv()
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', 'YOUR_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET', 'YOUR_API_SECRET')
-NTFY_URL = 'https://ntfy.sh/mHaneysAlgoBot'
 
 exchange = ccxt.binanceus({
     'apiKey': BINANCE_API_KEY,
     'secret': BINANCE_API_SECRET,
     'enableRateLimit': True,
-    'timeout': 10000,  # 10 seconds
+    'timeout': 10000,
 })
 
 SYMBOL = 'BNB/USD'
 SPREAD_THRESHOLD = Decimal('0.001')  # 0.1%
 MAX_USD_RATIO = Decimal('0.9')
 
-# Logging setup
 logging.basicConfig(
     filename='trading_bot.log',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
 )
 
-def log_and_notify(message):
-    print(message)
-    logging.info(message)
-    try:
-        requests.post(NTFY_URL, data=message.encode('utf-8'), timeout=1)
-    except Exception as e:
-        logging.warning(f"ntfy notification failed: {e}")
-
-# 24-hour stats for daily update
-stats = {
-    'entries': 0,
-    'exits': 0,
-    'last_entry': None,
-    'last_exit': None,
-    'pl_usd': Decimal('0'),
-    'total_entry': Decimal('0'),
-    'total_exit': Decimal('0'),
-}
-
-def send_daily_update():
-    while True:
-        now = datetime.datetime.now()
-        # Calculate next 8am
-        next_8am = now.replace(hour=8, minute=0, second=0, microsecond=0)
-        if now >= next_8am:
-            next_8am += datetime.timedelta(days=1)
-        wait_seconds = (next_8am - now).total_seconds()
-        time.sleep(wait_seconds)
-        # Compose and send update (P/L only)
-        # Calculate percent P/L based on total entry/exit
-        if stats.get('total_entry', Decimal('0')) > 0:
-            pl_pct = ((stats.get('total_exit', Decimal('0')) - stats.get('total_entry', Decimal('0'))) / stats.get('total_entry', Decimal('0'))) * Decimal('100')
-        else:
-            pl_pct = Decimal('0')
-        msg = (
-            f"[24h Update]\n"
-            f"P/L: {stats['pl_usd']:.2f} USD ({pl_pct:.2f}%)"
-        )
-        try:
-            requests.post(NTFY_URL, data=msg.encode('utf-8'), timeout=5)
-        except Exception as e:
-            logging.warning(f"ntfy daily update failed: {e}")
-        # Reset stats for next 24h
-        stats['entries'] = 0
-        stats['exits'] = 0
-        stats['last_entry'] = None
-        stats['last_exit'] = None
-        stats['pl_usd'] = Decimal('0')
-        stats['total_entry'] = Decimal('0')
-        stats['total_exit'] = Decimal('0')
-
-# Start daily update thread
-threading.Thread(target=send_daily_update, daemon=True).start()
+positions = []  # List of {'entry': Decimal, 'qty': Decimal}
 
 
-last_price = None
-positions = []  # List of {'entry': Decimal, 'qty': Decimal, 'ratchet': Decimal}
-last_status_log = 0
-
+# ntfy notification setup
+NTFY_URL = os.getenv('NTFY_URL', 'https://ntfy.sh/mHaneysAlgoBot')
+start_msg = "=== Minimal AlgoBot is starting up! ==="
+print(f"\n{start_msg}\n")
+logging.info(start_msg)
 try:
-    print("\n=== AlgoBot is starting up! ===\n")
-    startup_msg = "AlgoBot has started running."
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            log_and_notify(startup_msg)
-            break
-        except Exception as e:
-            logging.warning(f"Startup notification attempt {attempt+1} failed: {e}")
-            print(f"Startup notification attempt {attempt+1} failed: {e}")
-            time.sleep(1)
-    last_move = ' '
-    last_price_seen = None
-    last_logged_price = None
-    last_diff_price = None
-    buy_trigger_time = None
-    buy_trigger_active = False
-    while True:
-        try:
-            # Save previous price before fetching new one
-            prev_price = last_price
+    requests.post(NTFY_URL, data=start_msg.encode('utf-8'), timeout=3)
+except Exception as e:
+    logging.warning(f"ntfy notification failed: {e}")
 
-            try:
-                order_book = exchange.fetch_order_book(SYMBOL, limit=10)
-            except Exception as e:
-                print(f"Order book fetch timeout or error: {e}")
-                time.sleep(2)
-                continue
-            bids = order_book['bids']
-            asks = order_book['asks']
-            if not bids or not asks:
-                print('No bids or asks available.')
-                time.sleep(2)
-                continue
-            highest_bid = Decimal(str(bids[0][0]))
-            lowest_ask = Decimal(str(asks[0][0]))
-            spread = (lowest_ask - highest_bid) / lowest_ask
 
-            try:
-                ticker = exchange.fetch_ticker(SYMBOL)
-                price = Decimal(str(ticker['last']))
-            except Exception as e:
-                print(f"Ticker fetch timeout or error: {e}")
-                time.sleep(2)
-                continue
-            last_price = price
+last_log_time = 0
+LOG_INTERVAL = 10  # seconds
+CHECK_INTERVAL = 0.5  # seconds
 
-            try:
-                balance = exchange.fetch_balance()
-                usd_balance = Decimal(str(balance['free'].get('USD', 0)))
-                bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
-            except Exception as e:
-                print(f"Balance fetch timeout or error: {e}")
-                time.sleep(2)
-                continue
+from collections import deque
 
-            # Log every time the price moves
-            now = time.time()
-            if last_logged_price is None:
-                last_logged_price = price
-            if last_diff_price is None:
-                last_diff_price = price
+# Track price history as (timestamp, price)
+price_history = deque(maxlen=120)  # 120 * 0.5s = 60s, enough for 30s lookback
 
-            price_moved = False
-            prev_logged_price = last_logged_price
-            prev_diff_price = last_diff_price
-            price_move_time = None
-            if price != last_logged_price:
-                now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                move_dir = '+' if price > last_logged_price else '-'
-                move_msg = f"[{now_str}] Price move: {move_dir} {last_logged_price} -> {price}"
-                print(move_msg)
-                logging.info(move_msg)
-                price_moved = True
-                last_logged_price = price
-                last_diff_price = price
-                price_move_time = time.time()
+while True:
+    try:
+        # Fetch order book and ticker
+        order_book = exchange.fetch_order_book(SYMBOL, limit=10)
+        bids = order_book['bids']
+        asks = order_book['asks']
+        if not bids or not asks:
+            print('No bids or asks available.')
+            time.sleep(CHECK_INTERVAL)
+            continue
 
-            # Entry logic: check every loop, but only log diagnostics on price move or actual buy
+        # Find the lowest open ask
+        lowest_ask = Decimal(str(asks[0][0]))
+        ask_qty = Decimal(str(asks[0][1]))
+
+        # Find the highest bid that covers the lowest ask quantity
+        covered_qty = Decimal('0')
+        highest_covering_bid = None
+        for bid_price, bid_qty in bids:
+            bid_price = Decimal(str(bid_price))
+            bid_qty = Decimal(str(bid_qty))
+            covered_qty += bid_qty
+            if covered_qty >= ask_qty:
+                highest_covering_bid = bid_price
+                break
+        if highest_covering_bid is None:
+            highest_covering_bid = Decimal(str(bids[0][0]))  # fallback to top bid
+
+        spread = (lowest_ask - highest_covering_bid) / lowest_ask
+
+
+        ticker = exchange.fetch_ticker(SYMBOL)
+        price = Decimal(str(ticker['last']))
+        now = time.time()
+        price_history.append((now, price))
+
+        balance = exchange.fetch_balance()
+        usd_balance = Decimal(str(balance['free'].get('USD', 0)))
+        bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
+
+        # --- Buy logic ---
+        # Only buy if spread < 0.1% and price has increased in the last 30 seconds
+        price_increased = False
+        for t, p in reversed(price_history):
+            if now - t > 30:
+                break
+            if p < price:
+                price_increased = True
+                break
+
+        if spread < Decimal('0.001') and usd_balance > 10 and price_increased:
             ask_qty = Decimal(str(asks[0][1]))
-            cumulative_bid_qty = Decimal('0')
-            weighted_bid_sum = Decimal('0')
+            max_bnb = (usd_balance * Decimal('0.9')) / lowest_ask
+            buy_qty = min(ask_qty, max_bnb)
+            if buy_qty > 0 and (buy_qty * lowest_ask) >= 10:
+                try:
+                    order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                    filled_qty = Decimal(str(order.get('filled', buy_qty)))
+                    positions.append({'entry': lowest_ask, 'qty': filled_qty})
+                    print(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD")
+                    logging.info(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD")
+                except Exception as e:
+                    print(f"Buy error: {e}")
+                    logging.error(f"Buy error: {e}")
+
+        # --- Sell logic ---
+        new_positions = []
+        for pos in positions:
+            entry = pos.get('entry')
+            qty = pos.get('qty')
+            if qty is None:
+                print(f"ERROR: qty missing in position: {pos}")
+                continue
+
+            # Find the highest open bid that covers this position's qty
+            covered_qty = Decimal('0')
+            highest_covering_bid = None
             for bid_price, bid_qty in bids:
-                bid_price_dec = Decimal(str(bid_price))
-                bid_qty_dec = Decimal(str(bid_qty))
-                if cumulative_bid_qty + bid_qty_dec >= ask_qty:
-                    needed_qty = ask_qty - cumulative_bid_qty
-                    weighted_bid_sum += bid_price_dec * needed_qty
-                    cumulative_bid_qty += needed_qty
+                bid_price = Decimal(str(bid_price))
+                bid_qty = Decimal(str(bid_qty))
+                covered_qty += bid_qty
+                if covered_qty >= qty:
+                    highest_covering_bid = bid_price
                     break
-                else:
-                    weighted_bid_sum += bid_price_dec * bid_qty_dec
-                    cumulative_bid_qty += bid_qty_dec
-            if cumulative_bid_qty == 0:
-                vwap_bid_price = Decimal(str(bids[0][0]))
+            if highest_covering_bid is None:
+                highest_covering_bid = Decimal(str(bids[0][0]))  # fallback
+
+            # Sell if highest covering bid is -0.2% or +0.1% from entry
+            lower_thresh = entry * Decimal('0.998')  # -0.2%
+            upper_thresh = entry * Decimal('1.001')  # +0.1%
+            if highest_covering_bid <= lower_thresh or highest_covering_bid >= upper_thresh:
+                try:
+                    order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                    pnl_usd = (highest_covering_bid - entry) * qty
+                    pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
+                    print(f"SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry}) | P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)")
+                    logging.info(f"SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry}) | P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)")
+                    # ntfy notification
+                    try:
+                        ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry})\nP/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
+                        requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=3)
+                    except Exception as ne:
+                        logging.warning(f"ntfy sale notification failed: {ne}")
+                except Exception as e:
+                    print(f"Sell error: {e}")
+                    logging.error(f"Sell error: {e}")
             else:
-                vwap_bid_price = weighted_bid_sum / ask_qty
-            entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
-            # ...removed [DIAG][ENTRY] diagnostic logging...
-            # Allow repeated buys after a positive price change, as long as spread remains < threshold
-            if prev_diff_price is not None:
-                if price > prev_diff_price:
-                    buy_trigger_active = True
-                    buy_trigger_time = time.time()
-                elif price < prev_diff_price:
-                    buy_trigger_active = False
-                    buy_trigger_time = None
-                # ...removed [DIAG][BUY] diagnostics...
-                # If buy trigger is active, spread is favorable, and price increase occurred within last 30 seconds, keep buying
-                if (
-                    'buy_trigger_active' in locals() and buy_trigger_active and
-                    entry_spread < SPREAD_THRESHOLD and
-                    buy_trigger_time is not None and (time.time() - buy_trigger_time) <= 30
-                ):
-                    max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
-                    buy_qty = min(ask_qty, max_qty)
-                    min_notional = Decimal('10')  # Binance.us minimum notional for BNB/USD is typically $10
-                    notional_value = buy_qty * lowest_ask
-                    if buy_qty <= 0:
-                        pass
-                    elif notional_value < min_notional:
-                        pass
-                    else:
-                        # Add a small buffer for fees (0.1%)
-                        buffer = Decimal('1.001')
-                        if usd_balance < (min_notional * buffer):
-                            print(f"SKIP BUY: Not enough USD to meet min notional + buffer (balance: {usd_balance})")
-                        else:
-                            minus_02 = lowest_ask * Decimal('0.998')
-                            plus_01 = lowest_ask * Decimal('1.001')
-                            msg = (
-                                f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
-                                f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
-                            )
-                            print(msg)
-                            logging.info(msg)
-                            try:
-                                order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                            except Exception as e:
-                                print(f"BUY ERROR: {e}")
-                                logging.error(f"Buy order failed: {e}")
-                                order = None
-                            if order:
-                                # Try to get actual filled quantity from order response
-                                actual_qty = None
-                                if 'filled' in order:
-                                    actual_qty = Decimal(str(order['filled']))
-                                elif 'amount' in order:
-                                    actual_qty = Decimal(str(order['amount']))
-                                elif 'fills' in order and isinstance(order['fills'], list) and order['fills']:
-                                    # Sum all fill quantities
-                                    actual_qty = sum(Decimal(str(fill.get('qty', fill.get('amount', 0)))) for fill in order['fills'])
-                                # Fallback: fetch BNB balance difference if actual_qty is not set or zero
-                else:
-                    pass
-            # Fallback: fetch BNB balance difference if actual_qty is not set or zero
-            if 'order' in locals() and order:
-                if not actual_qty or actual_qty <= 0:
-                    balance_after = exchange.fetch_balance()
-                    bnb_balance_after = Decimal(str(balance_after['free'].get('BNB', 0)))
-                    # Estimate actual_qty as the change in BNB balance, minus fee buffer
-                    fee_buffer = Decimal('0.000095')  # 0.0095%
-                    actual_qty = (bnb_balance_after - bnb_balance) * (Decimal('1') - fee_buffer)
-                # Only add position if actual_qty is positive and nonzero, and never use intended buy_qty as fallback
-                if actual_qty and actual_qty > 0:
-                    positions.append({
-                        'entry': lowest_ask,
-                        'qty': actual_qty,
-                        'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                    })
-                    # Update stats
-                    stats['entries'] += 1
-                    stats['last_entry'] = f"{actual_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                else:
-                    print(f"SKIP POSITION: Unable to determine valid filled quantity for buy order at {lowest_ask} USD.")
-                    logging.warning(f"SKIP POSITION: Unable to determine valid filled quantity for buy order at {lowest_ask} USD.")
-            # Status log every 10 seconds (VWAP-based spread)
-            if now - last_status_log > 10:
-                # Calculate VWAP bid price for ask_qty (same as entry logic)
-                ask_qty_status = Decimal(str(asks[0][1]))
-                cumulative_bid_qty_status = Decimal('0')
-                weighted_bid_sum_status = Decimal('0')
-                for bid_price, bid_qty in bids:
-                    bid_price_dec = Decimal(str(bid_price))
-                    bid_qty_dec = Decimal(str(bid_qty))
-                    if cumulative_bid_qty_status + bid_qty_dec >= ask_qty_status:
-                        needed_qty = ask_qty_status - cumulative_bid_qty_status
-                        weighted_bid_sum_status += bid_price_dec * needed_qty
-                        cumulative_bid_qty_status += needed_qty
-                        break
-                    else:
-                        weighted_bid_sum_status += bid_price_dec * bid_qty_dec
-                        cumulative_bid_qty_status += bid_qty_dec
-                if cumulative_bid_qty_status == 0:
-                    vwap_bid_price_status = Decimal(str(bids[0][0]))
-                else:
-                    vwap_bid_price_status = weighted_bid_sum_status / ask_qty_status
-                vwap_spread = (lowest_ask - vwap_bid_price_status) / lowest_ask
-                now_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                # Build custom positions status string
-                if positions:
-                    pos_statuses = []
-                    for pos in positions:
-                        entry_price = float(pos['entry'])
-                        needed_qty = pos['qty']
-                        cumulative_qty = Decimal('0')
-                        weighted_bid_sum = Decimal('0')
-                        # Use same cover_bid calculation as sell logic
-                        for bid_price, bid_qty in bids:
-                            bid_price_dec = Decimal(str(bid_price))
-                            bid_qty_dec = Decimal(str(bid_qty))
-                            if cumulative_qty + bid_qty_dec >= needed_qty:
-                                fill_qty = needed_qty - cumulative_qty
-                                weighted_bid_sum += bid_price_dec * fill_qty
-                                cumulative_qty += fill_qty
-                                break
-                            else:
-                                weighted_bid_sum += bid_price_dec * bid_qty_dec
-                                cumulative_qty += bid_qty_dec
-                        if cumulative_qty == 0:
-                            cover_bid = float(bids[0][0])
-                        else:
-                            cover_bid = float(weighted_bid_sum / needed_qty)
-                        lower_thresh = float(entry_price * (1 + float(pos['ratchet']) - 0.002))
-                        upper_thresh = float(entry_price * (1 + float(pos['ratchet'])))
-                        usd_value = float(pos['qty']) * entry_price
-                        pos_statuses.append(f"entry: {entry_price:.2f} (USD value: {usd_value:.2f}), lower threshold: {lower_thresh:.2f}, upper threshold: {upper_thresh:.2f}, current: {cover_bid:.2f}")
-                    pos_status = ' | '.join(pos_statuses)
-                else:
-                    pos_status = "None"
-                status_msg = f"[{now_str}] Status: USD={usd_balance:.2f}, spread={vwap_spread:.6f} (decimal), {vwap_spread*100:.4f}% (percent), threshold={SPREAD_THRESHOLD} (decimal), position={pos_status}"
-                print(status_msg)
-                logging.info(status_msg)
-                last_status_log = now
+                new_positions.append(pos)
+        positions = new_positions
 
-            # Updated entry logic: use VWAP of cumulative bids to cover lowest ask size
-            # Always consider new entries
-                ask_qty = Decimal(str(asks[0][1]))
-                cumulative_bid_qty = Decimal('0')
-                weighted_bid_sum = Decimal('0')
-                for bid_price, bid_qty in bids:
-                    bid_price_dec = Decimal(str(bid_price))
-                    bid_qty_dec = Decimal(str(bid_qty))
-                    if cumulative_bid_qty + bid_qty_dec >= ask_qty:
-                        needed_qty = ask_qty - cumulative_bid_qty
-                        weighted_bid_sum += bid_price_dec * needed_qty
-                        cumulative_bid_qty += needed_qty
-                        break
-                    else:
-                        weighted_bid_sum += bid_price_dec * bid_qty_dec
-                        cumulative_bid_qty += bid_qty_dec
-                if cumulative_bid_qty == 0:
-                    vwap_bid_price = Decimal(str(bids[0][0]))
-                else:
-                    vwap_bid_price = weighted_bid_sum / ask_qty
-                # Calculate spread using VWAP bid price
-                entry_spread = (lowest_ask - vwap_bid_price) / lowest_ask
-                # Only enter if spread < threshold and price increased
-                # ...removed [DIAG][ENTRY] diagnostic logging...
-                if entry_spread < SPREAD_THRESHOLD and prev_price is not None and price > prev_price:
-                    max_qty = (usd_balance * MAX_USD_RATIO) / lowest_ask
-                    buy_qty = min(ask_qty, max_qty)
-                    if buy_qty > 0:
-                        minus_02 = lowest_ask * Decimal('0.998')
-                        plus_01 = lowest_ask * Decimal('1.001')
-                        msg = (
-                            f"ENTRY: Market buy {buy_qty} BNB at {lowest_ask} USD (spread: {entry_spread*100:.4f}%)\n"
-                            f"  -0.2% stop: {minus_02:.4f}  +0.1% ratchet: {plus_01:.4f}"
-                        )
-                        print(msg)
-                        logging.info(msg)
-                        order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                        positions.append({
-                            'entry': lowest_ask,
-                            'qty': buy_qty,
-                            'ratchet': Decimal('0.001'),  # +0.1% initial ratchet
-                        })
-                        # Update stats
-                        stats['entries'] += 1
-                        stats['last_entry'] = f"{buy_qty} BNB at {lowest_ask} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                else:
-                    debug_entry = True
-                # ...removed debug entry logger...
-
-            # Sell and ratcheting logic
-            # Manage all open positions
-            new_positions = []
-            for pos in positions:
-                needed_qty = pos['qty']
-                cumulative_qty = Decimal('0')
-                weighted_bid_sum = Decimal('0')
-                # Recalculate cover_bid for each position independently
-                for bid_price, bid_qty in bids:
-                    bid_price_dec = Decimal(str(bid_price))
-                    bid_qty_dec = Decimal(str(bid_qty))
-                    if cumulative_qty + bid_qty_dec >= needed_qty:
-                        fill_qty = needed_qty - cumulative_qty
-                        weighted_bid_sum += bid_price_dec * fill_qty
-                        cumulative_qty += fill_qty
-                        break
-                    else:
-                        weighted_bid_sum += bid_price_dec * bid_qty_dec
-                        cumulative_qty += bid_qty_dec
-                if cumulative_qty == 0:
-                    cover_bid = float(bids[0][0])
-                else:
-                    cover_bid = float(weighted_bid_sum / needed_qty)
-
-                entry_price = Decimal(str(pos['entry']))
-                ratchet_level = entry_price * (Decimal('1.0') + Decimal(str(pos['ratchet'])))
-                lower_thresh = entry_price * (Decimal('1.0') + Decimal(str(pos['ratchet'])) - Decimal('0.002'))
-
-                # Ratchet up if cover_bid > ratchet_level
-                if Decimal(str(cover_bid)) > ratchet_level:
-                    pos['ratchet'] += Decimal('0.001')
-                    lower_thresh = entry_price * (Decimal('1.0') + Decimal(str(pos['ratchet'])) - Decimal('0.002'))
-                    msg = f"RATCHET: Stop moved to {lower_thresh:.4f} (+{float(pos['ratchet'])*100:.2f}% of entry)"
-                    logging.info(msg)
-
-                # Diagnostic logging for sell check
-                # If cover_bid drops to or below lower_thresh, sell (rounded to 2 decimals)
-                if round(Decimal(str(cover_bid)), 2) <= round(lower_thresh, 2):
-                    exit_price = Decimal(str(cover_bid))
-                    qty = pos['qty']
-                    tolerance = Decimal('0.0005')
-                    if qty > bnb_balance:
-                        if qty - bnb_balance <= tolerance and bnb_balance > 0:
-                            # Sell the available balance if within tolerance
-                            msg = f"PARTIAL EXIT: Selling available BNB {bnb_balance} instead of {qty} (within tolerance)"
-                            print(msg)
-                            logging.info(msg)
-                            qty = bnb_balance
-                        else:
-                            msg = f"SKIP EXIT & REMOVE: Not enough BNB to sell {qty} (balance: {bnb_balance}). Removing position."
-                            print(msg)
-                            logging.warning(msg)
-                        # Always remove this position after a skip or partial exit
-                        continue
-                    pnl_usd = (exit_price - entry_price) * qty
-                    stats['pl_usd'] += pnl_usd
-                    stats['total_entry'] += entry_price * qty
-                    stats['total_exit'] += exit_price * qty
-                    pnl_pct = ((exit_price - entry_price) / entry_price) * Decimal('100')
-                    msg = f"EXIT: Market sell {qty} BNB at {float(exit_price)} USD (entry: {float(entry_price)}, ratchet: {float(pos['ratchet'])*100:.2f}%)"
-                    print(msg)
-                    logging.info(msg)
-                    ntfy_msg = f"Position exited\nP/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
-                    try:
-                        requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=1)
-                    except Exception as e:
-                        logging.warning(f"ntfy notification failed: {e}")
-                    try:
-                        order = exchange.create_market_sell_order(SYMBOL, float(qty))
-                        # Refresh BNB balance after successful sell
-                        balance = exchange.fetch_balance()
-                        bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
-                    except Exception as e:
-                        print(f"Error: {e}")
-                        logging.error(f"Sell order failed: {e}")
-                    # Update stats
-                    stats['exits'] += 1
-                    stats['last_exit'] = f"{qty} BNB at {float(exit_price)} USD ({datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')})"
-                    # Always remove this position after a sell attempt
-                else:
-                    new_positions.append(pos)
-            positions = new_positions
-
-            last_price = price
-        except Exception as e:
-            logging.error(f'Error: {e}')
-            print('Error:', e)
-        time.sleep(2)
-except KeyboardInterrupt:
-    print("\n=== AlgoBot is shutting down. ===\n")
-    shutdown_msg = "AlgoBot has stopped running."
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            log_and_notify(shutdown_msg)
-            break
-        except Exception as e:
-            logging.warning(f"Shutdown notification attempt {attempt+1} failed: {e}")
-            time.sleep(1)
+        # --- Status log ---
+        now = time.time()
+        if now - last_log_time >= LOG_INTERVAL:
+            print(f"USD: {usd_balance:.2f}, BNB: {bnb_balance:.5f}, Price: {price}, Spread: {spread*100:.4f}%")
+            logging.info(f"USD: {usd_balance:.2f}, BNB: {bnb_balance:.5f}, Price: {price}, Spread: {spread*100:.4f}%")
+            last_log_time = now
+        time.sleep(CHECK_INTERVAL)
+    except Exception as e:
+        print(f"Error: {e}")
+        time.sleep(CHECK_INTERVAL)
