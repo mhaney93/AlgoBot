@@ -55,8 +55,12 @@ except Exception as e:
 try:
     while True:
         try:
-            # Fetch order book and ticker
+            # Fetch order book
+            print("[DIAG] Fetching order book...")
+            logging.info("[DIAG] Fetching order book...")
             order_book = exchange.fetch_order_book(SYMBOL, limit=10)
+            print("[DIAG] Order book fetched.")
+            logging.info("[DIAG] Order book fetched.")
             bids = order_book['bids']
             asks = order_book['asks']
             if not bids or not asks:
@@ -83,12 +87,20 @@ try:
 
             spread = (lowest_ask - highest_covering_bid) / lowest_ask
 
+            print("[DIAG] Fetching ticker...")
+            logging.info("[DIAG] Fetching ticker...")
             ticker = exchange.fetch_ticker(SYMBOL)
+            print("[DIAG] Ticker fetched.")
+            logging.info("[DIAG] Ticker fetched.")
             price = Decimal(str(ticker['last']))
             now = time.time()
             price_history.append((now, price))
 
+            print("[DIAG] Fetching balance...")
+            logging.info("[DIAG] Fetching balance...")
             balance = exchange.fetch_balance()
+            print("[DIAG] Balance fetched.")
+            logging.info("[DIAG] Balance fetched.")
             usd_balance = Decimal(str(balance['free'].get('USD', 0)))
             bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
 
@@ -100,13 +112,17 @@ try:
                 buy_qty = min(ask_qty, max_bnb)
                 if buy_qty > 0 and (buy_qty * lowest_ask) >= 10:
                     try:
+                        print("[DIAG] Placing market buy order...")
+                        logging.info("[DIAG] Placing market buy order...")
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                        print("[DIAG] Market buy order placed.")
+                        logging.info("[DIAG] Market buy order placed.")
                         filled_qty = Decimal(str(order.get('filled', buy_qty)))
                         positions.append({'entry': lowest_ask, 'qty': filled_qty})
                         usd_value = filled_qty * lowest_ask
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] BOUGHT {filled_qty} BNB at {lowest_ask} USD (Value: {usd_value:.2f} USD)")
-                        logging.info(f"BOUGHT {filled_qty} BNB at {lowest_ask} USD (Value: {usd_value:.2f} USD)")
+                        print(f"[{now_str}] BOUGHT {filled_qty} BNB at {lowest_ask} $ (Value: ${usd_value:.2f})")
+                        logging.info(f"BOUGHT {filled_qty} BNB at {lowest_ask} $ (Value: ${usd_value:.2f})")
                     except Exception as e:
                         print(f"Buy error: {e}")
                         logging.error(f"Buy error: {e}")
@@ -138,15 +154,19 @@ try:
                 upper_thresh = entry * Decimal('1.001')  # +0.1%
                 if highest_covering_bid <= lower_thresh or highest_covering_bid >= upper_thresh:
                     try:
+                        print("[DIAG] Placing market sell order...")
+                        logging.info("[DIAG] Placing market sell order...")
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                        print("[DIAG] Market sell order placed.")
+                        logging.info("[DIAG] Market sell order placed.")
                         pnl_usd = (highest_covering_bid - entry) * qty
                         pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry}) | P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)")
-                        logging.info(f"SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry}) | P/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)")
+                        print(f"[{now_str}] SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)")
+                        logging.info(f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)")
                         # ntfy notification
                         try:
-                            ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} USD (entry: {entry})\nP/L: {pnl_usd:.2f} USD ({pnl_pct:.2f}%)"
+                            ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry})\nP/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
                             requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=3)
                         except Exception as ne:
                             logging.warning(f"ntfy sale notification failed: {ne}")
@@ -160,9 +180,7 @@ try:
             # --- Status log ---
             if now - last_log_time >= LOG_INTERVAL:
                 now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                print(f"[{now_str}] USD: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%")
-                logging.info(f"USD: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%")
-
+                log_lines = [f"[{now_str}] $: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%"]
                 # Positions update
                 if positions:
                     pos_lines = []
@@ -185,14 +203,14 @@ try:
                         upper_thresh = entry * Decimal('1.001')  # +0.1%
                         usd_value = qty * entry
                         pos_lines.append(
-                            f"Entry: {entry}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: {usd_value:.2f} USD"
+                            f"Entry: {entry}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: ${usd_value:.2f}"
                         )
-                    pos_update = "Positions:\n" + "\n".join(pos_lines)
-                    print(f"[{now_str}]\n" + pos_update)
-                    logging.info(pos_update)
+                    log_lines.append("Positions:\n" + "\n".join(pos_lines))
                 else:
-                    print("Positions: None")
-                    logging.info("Positions: None")
+                    log_lines.append("Positions: None")
+                log_block = "\n".join(log_lines)
+                print(log_block)
+                logging.info(log_block)
                 last_log_time = now
             time.sleep(CHECK_INTERVAL)
         except Exception as e:
