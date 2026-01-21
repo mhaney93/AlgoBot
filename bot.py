@@ -47,6 +47,9 @@ logging.info(start_msg)
 try:
     requests.post(NTFY_URL, data=start_msg.encode('utf-8'), timeout=3)
 except Exception as e:
+    logging.warning(f"ntfy notification failed: {e}")
+
+try:
     while True:
         try:
             # Fetch order book and ticker
