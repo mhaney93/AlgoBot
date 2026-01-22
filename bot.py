@@ -56,11 +56,9 @@ try:
     while True:
         try:
             # Fetch order book
-            print("[DIAG] Fetching order book...")
-            logging.info("[DIAG] Fetching order book...")
+            # ...existing code...
             order_book = exchange.fetch_order_book(SYMBOL, limit=10)
-            print("[DIAG] Order book fetched.")
-            logging.info("[DIAG] Order book fetched.")
+            # ...existing code...
             bids = order_book['bids']
             asks = order_book['asks']
             if not bids or not asks:
@@ -87,20 +85,16 @@ try:
 
             spread = (lowest_ask - highest_covering_bid) / lowest_ask
 
-            print("[DIAG] Fetching ticker...")
-            logging.info("[DIAG] Fetching ticker...")
+            # ...existing code...
             ticker = exchange.fetch_ticker(SYMBOL)
-            print("[DIAG] Ticker fetched.")
-            logging.info("[DIAG] Ticker fetched.")
+            # ...existing code...
             price = Decimal(str(ticker['last']))
             now = time.time()
             price_history.append((now, price))
 
-            print("[DIAG] Fetching balance...")
-            logging.info("[DIAG] Fetching balance...")
+            # ...existing code...
             balance = exchange.fetch_balance()
-            print("[DIAG] Balance fetched.")
-            logging.info("[DIAG] Balance fetched.")
+            # ...existing code...
             usd_balance = Decimal(str(balance['free'].get('USD', 0)))
             bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
 
@@ -191,8 +185,7 @@ try:
                 lowest_ask_price = Decimal(str(asks[0][0]))
                 lowest_ask_usd = lowest_ask_amt * lowest_ask_price
                 log_lines = [
-                    f"[{now_str}] ${usd_balance:.2f}, Spread: {spread*100:.4f}%",
-                    f"Lowest Ask: {lowest_ask_amt} BNB @ {lowest_ask_price} (${'{:.2f}'.format(lowest_ask_usd)})"
+                    f"[{now_str}] USD: ${usd_balance:.2f}, Spread: {spread*100:.4f}%, Lowest Ask: {lowest_ask_amt} BNB @ {lowest_ask_price} (USD: ${lowest_ask_usd:.2f})"
                 ]
                 # Positions update
                 if positions:
@@ -216,7 +209,7 @@ try:
                         upper_thresh = entry * Decimal('1.001')  # +0.1%
                         usd_value = qty * entry
                         pos_lines.append(
-                            f"Entry: {entry}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: ${usd_value:.2f}"
+                            f"Entry: {entry}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: USD: ${usd_value:.2f}"
                         )
                     log_lines.append("Positions:\n" + "\n".join(pos_lines))
                 else:
