@@ -106,11 +106,28 @@ try:
 
             # --- Buy logic ---
             # Buy if spread < 0.1%
-            if spread < Decimal('0.001') and usd_balance > 10:
-                ask_qty = Decimal(str(asks[0][1]))
-                max_bnb = (usd_balance * Decimal('0.9')) / lowest_ask
-                buy_qty = min(ask_qty, max_bnb)
-                if buy_qty > 0 and (buy_qty * lowest_ask) >= 10:
+            # Aggregate asks until min_notional is met, use weighted avg price
+            min_notional = Decimal('10')
+            agg_qty = Decimal('0')
+            agg_usd = Decimal('0')
+            weighted_sum = Decimal('0')
+            for price_, qty_ in asks:
+                price_ = Decimal(str(price_))
+                qty_ = Decimal(str(qty_))
+                if agg_usd < min_notional:
+                    take_qty = min(qty_, ((min_notional - agg_usd) / price_))
+                    agg_qty += take_qty
+                    weighted_sum += take_qty * price_
+                    agg_usd += take_qty * price_
+                else:
+                    break
+            if agg_usd >= min_notional:
+                weighted_avg_price = weighted_sum / agg_qty
+                max_bnb = (usd_balance * Decimal('0.9')) / weighted_avg_price
+                buy_qty = min(agg_qty, max_bnb)
+                # Recalculate spread using weighted_avg_price
+                spread_for_buy = (weighted_avg_price - highest_covering_bid) / weighted_avg_price
+                if buy_qty > 0 and agg_usd >= min_notional and spread_for_buy < Decimal('0.001'):
                     try:
                         print("[DIAG] Placing market buy order...")
                         logging.info("[DIAG] Placing market buy order...")
@@ -118,11 +135,11 @@ try:
                         print("[DIAG] Market buy order placed.")
                         logging.info("[DIAG] Market buy order placed.")
                         filled_qty = Decimal(str(order.get('filled', buy_qty)))
-                        positions.append({'entry': lowest_ask, 'qty': filled_qty})
-                        usd_value = filled_qty * lowest_ask
+                        positions.append({'entry': weighted_avg_price, 'qty': filled_qty})
+                        usd_value = filled_qty * weighted_avg_price
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] BOUGHT {filled_qty} BNB at {lowest_ask} $ (Value: ${usd_value:.2f})")
-                        logging.info(f"BOUGHT {filled_qty} BNB at {lowest_ask} $ (Value: ${usd_value:.2f})")
+                        print(f"[{now_str}] BOUGHT {filled_qty} BNB at {weighted_avg_price} $ (Value: ${usd_value:.2f})")
+                        logging.info(f"BOUGHT {filled_qty} BNB at {weighted_avg_price} $ (Value: ${usd_value:.2f})")
                     except Exception as e:
                         print(f"Buy error: {e}")
                         logging.error(f"Buy error: {e}")
@@ -167,6 +184,8 @@ try:
                         # ntfy notification
                         try:
                             ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry})\nP/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
+                            # Remove $ before entry price in notification
+                            ntfy_msg = ntfy_msg.replace(f"$ (entry: {entry})", f" (entry: {entry})")
                             requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=3)
                         except Exception as ne:
                             logging.warning(f"ntfy sale notification failed: {ne}")
@@ -180,7 +199,13 @@ try:
             # --- Status log ---
             if now - last_log_time >= LOG_INTERVAL:
                 now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                log_lines = [f"[{now_str}] $: {usd_balance:.2f}, Price: {price}, Spread: {spread*100:.4f}%"]
+                lowest_ask_amt = Decimal(str(asks[0][1]))
+                lowest_ask_price = Decimal(str(asks[0][0]))
+                lowest_ask_usd = lowest_ask_amt * lowest_ask_price
+                log_lines = [
+                    f"[{now_str}] ${usd_balance:.2f}, Spread: {spread*100:.4f}%",
+                    f"Lowest Ask: {lowest_ask_amt} BNB @ {lowest_ask_price} (${'{:.2f}'.format(lowest_ask_usd)})"
+                ]
                 # Positions update
                 if positions:
                     pos_lines = []
