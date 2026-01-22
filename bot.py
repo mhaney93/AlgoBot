@@ -21,7 +21,7 @@ exchange = ccxt.binanceus({
 })
 
 SYMBOL = 'BNB/USD'
-SPREAD_THRESHOLD = Decimal('0.001')  # 0.1%
+SPREAD_THRESHOLD = Decimal('0.0005')  # 0.05%
 MAX_USD_RATIO = Decimal('0.9')
 
 logging.basicConfig(
@@ -99,7 +99,7 @@ try:
             bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
 
             # --- Buy logic ---
-            # Buy if spread < 0.1%, but account for bids already attributed to open positions
+            # Buy if spread < 0.05%, but account for bids already attributed to open positions
             min_notional = Decimal('10')
             agg_qty = Decimal('0')
             agg_usd = Decimal('0')
@@ -157,13 +157,16 @@ try:
 
                 # Recalculate spread using weighted_avg_price and the true available highest covering bid
                 spread_for_buy = (weighted_avg_price - highest_covering_bid) / weighted_avg_price
-                if buy_qty > 0 and agg_usd >= min_notional and spread_for_buy < Decimal('0.001'):
+                if buy_qty > 0 and agg_usd >= min_notional and spread_for_buy < Decimal('0.0005'):
                     try:
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                         filled_qty = Decimal(str(order.get('filled', buy_qty)))
                         positions.append({'entry': weighted_avg_price, 'qty': filled_qty})
                         usd_value = filled_qty * weighted_avg_price
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        entry_log = f"[{now_str}] ENTERED position: {filled_qty:.4f} BNB @ {weighted_avg_price:.2f} (USD: ${usd_value:.2f})"
+                        print(entry_log)
+                        logging.info(entry_log)
                     except Exception as e:
                         print(f"Buy error: {e}")
                         logging.error(f"Buy error: {e}")
@@ -202,8 +205,8 @@ try:
                 elif highest_covering_bid is None:
                     highest_covering_bid = Decimal('0')
 
-                # Sell if highest covering bid is -0.2% or +0.1% from entry
-                lower_thresh = entry * Decimal('0.998')  # -0.2%
+                # Sell if highest covering bid is -0.1% or +0.1% from entry
+                lower_thresh = entry * Decimal('0.999')  # -0.1%
                 upper_thresh = entry * Decimal('1.001')  # +0.1%
                 if highest_covering_bid <= lower_thresh or highest_covering_bid >= upper_thresh:
                     try:
@@ -211,6 +214,9 @@ try:
                         pnl_usd = (highest_covering_bid - entry) * qty
                         pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        exit_log = f"[{now_str}] EXITED position: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
+                        print(exit_log)
+                        logging.info(exit_log)
                         # ntfy notification
                         try:
                             ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry})\nP/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
@@ -252,11 +258,11 @@ try:
                                 break
                         if highest_covering_bid is None:
                             highest_covering_bid = Decimal(str(bids[0][0]))
-                        lower_thresh = entry * Decimal('0.998')  # -0.2%
+                        lower_thresh = entry * Decimal('0.999')  # -0.1%
                         upper_thresh = entry * Decimal('1.001')  # +0.1%
                         usd_value = qty * entry
                         pos_lines.append(
-                            f"Entry: {entry}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: USD: ${usd_value:.2f}"
+                            f"Entry: {entry:.2f}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: USD: ${usd_value:.2f}"
                         )
                     log_lines.append("Positions:\n" + "\n".join(pos_lines))
                 else:
