@@ -283,4 +283,7 @@ except KeyboardInterrupt:
     try:
         requests.post(NTFY_URL, data=shutdown_msg.encode('utf-8'), timeout=3)
     except Exception as e:
+        print(f"ntfy shutdown notification failed: {e}")
         logging.warning(f"ntfy shutdown notification failed: {e}")
+    finally:
+        pass  # Ensure graceful exit even if ntfy fails
