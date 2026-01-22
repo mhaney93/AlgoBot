@@ -129,17 +129,11 @@ try:
                 spread_for_buy = (weighted_avg_price - highest_covering_bid) / weighted_avg_price
                 if buy_qty > 0 and agg_usd >= min_notional and spread_for_buy < Decimal('0.001'):
                     try:
-                        print("[DIAG] Placing market buy order...")
-                        logging.info("[DIAG] Placing market buy order...")
                         order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                        print("[DIAG] Market buy order placed.")
-                        logging.info("[DIAG] Market buy order placed.")
                         filled_qty = Decimal(str(order.get('filled', buy_qty)))
                         positions.append({'entry': weighted_avg_price, 'qty': filled_qty})
                         usd_value = filled_qty * weighted_avg_price
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] BOUGHT {filled_qty} BNB at {weighted_avg_price} $ (Value: ${usd_value:.2f})")
-                        logging.info(f"BOUGHT {filled_qty} BNB at {weighted_avg_price} $ (Value: ${usd_value:.2f})")
                     except Exception as e:
                         print(f"Buy error: {e}")
                         logging.error(f"Buy error: {e}")
@@ -171,16 +165,10 @@ try:
                 upper_thresh = entry * Decimal('1.001')  # +0.1%
                 if highest_covering_bid <= lower_thresh or highest_covering_bid >= upper_thresh:
                     try:
-                        print("[DIAG] Placing market sell order...")
-                        logging.info("[DIAG] Placing market sell order...")
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
-                        print("[DIAG] Market sell order placed.")
-                        logging.info("[DIAG] Market sell order placed.")
                         pnl_usd = (highest_covering_bid - entry) * qty
                         pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
                         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        print(f"[{now_str}] SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)")
-                        logging.info(f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)")
                         # ntfy notification
                         try:
                             ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry})\nP/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
