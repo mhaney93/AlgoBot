@@ -99,8 +99,7 @@ try:
             bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
 
             # --- Buy logic ---
-            # Buy if spread < 0.1%
-            # Aggregate asks until min_notional is met, use weighted avg price
+            # Buy if spread < 0.1%, but account for bids already attributed to open positions
             min_notional = Decimal('10')
             agg_qty = Decimal('0')
             agg_usd = Decimal('0')
@@ -119,7 +118,44 @@ try:
                 weighted_avg_price = weighted_sum / agg_qty
                 max_bnb = (usd_balance * Decimal('0.9')) / weighted_avg_price
                 buy_qty = min(agg_qty, max_bnb)
-                # Recalculate spread using weighted_avg_price
+
+                # Simulate bid consumption by open positions (price-priority)
+                bids_remaining = [(Decimal(str(bp)), Decimal(str(bq))) for bp, bq in bids]
+                open_positions = [p for p in positions if p.get('qty')]
+                # Sort open positions by exit price (higher first)
+                def exit_price(pos):
+                    entry = pos.get('entry')
+                    return max(entry * Decimal('0.998'), entry * Decimal('1.001'))
+                sorted_positions = sorted(open_positions, key=exit_price, reverse=True)
+                for pos in sorted_positions:
+                    qty = pos.get('qty')
+                    covered = Decimal('0')
+                    for i, (bid_price, bid_qty) in enumerate(bids_remaining):
+                        if bid_qty <= 0:
+                            continue
+                        take_qty = min(qty - covered, bid_qty)
+                        covered += take_qty
+                        bids_remaining[i] = (bid_price, bid_qty - take_qty)
+                        if covered >= qty:
+                            break
+
+                # Now, for the new buy, find the highest open bid that covers the buy_qty using remaining bids
+                covered_qty = Decimal('0')
+                highest_covering_bid = None
+                for bid_price, bid_qty in bids_remaining:
+                    if bid_qty <= 0:
+                        continue
+                    take_qty = min(buy_qty - covered_qty, bid_qty)
+                    covered_qty += take_qty
+                    if covered_qty >= buy_qty:
+                        highest_covering_bid = bid_price
+                        break
+                if highest_covering_bid is None and bids_remaining:
+                    highest_covering_bid = bids_remaining[0][0]
+                elif highest_covering_bid is None:
+                    highest_covering_bid = Decimal('0')
+
+                # Recalculate spread using weighted_avg_price and the true available highest covering bid
                 spread_for_buy = (weighted_avg_price - highest_covering_bid) / weighted_avg_price
                 if buy_qty > 0 and agg_usd >= min_notional and spread_for_buy < Decimal('0.001'):
                     try:
@@ -133,26 +169,38 @@ try:
                         logging.error(f"Buy error: {e}")
 
             # --- Sell logic ---
+            # Sort positions by exit threshold (higher price first)
+            def exit_price(pos):
+                entry = pos.get('entry')
+                return max(entry * Decimal('0.998'), entry * Decimal('1.001'))
+            sorted_positions = sorted(positions, key=exit_price, reverse=True)
+
+            # Copy bids so we can decrement as we "sell" positions
+            bids_remaining = [(Decimal(str(bp)), Decimal(str(bq))) for bp, bq in bids]
             new_positions = []
-            for pos in positions:
+            for pos in sorted_positions:
                 entry = pos.get('entry')
                 qty = pos.get('qty')
                 if qty is None:
                     print(f"ERROR: qty missing in position: {pos}")
                     continue
 
-                # Find the highest open bid that covers this position's qty
+                # Find the highest open bid that covers this position's qty, decrementing bids as we go
                 covered_qty = Decimal('0')
                 highest_covering_bid = None
-                for bid_price, bid_qty in bids:
-                    bid_price = Decimal(str(bid_price))
-                    bid_qty = Decimal(str(bid_qty))
-                    covered_qty += bid_qty
+                for i, (bid_price, bid_qty) in enumerate(bids_remaining):
+                    if bid_qty <= 0:
+                        continue
+                    take_qty = min(qty - covered_qty, bid_qty)
+                    covered_qty += take_qty
+                    bids_remaining[i] = (bid_price, bid_qty - take_qty)
                     if covered_qty >= qty:
                         highest_covering_bid = bid_price
                         break
-                if highest_covering_bid is None:
-                    highest_covering_bid = Decimal(str(bids[0][0]))  # fallback
+                if highest_covering_bid is None and bids_remaining:
+                    highest_covering_bid = bids_remaining[0][0]  # fallback
+                elif highest_covering_bid is None:
+                    highest_covering_bid = Decimal('0')
 
                 # Sell if highest covering bid is -0.2% or +0.1% from entry
                 lower_thresh = entry * Decimal('0.998')  # -0.2%
@@ -166,7 +214,6 @@ try:
                         # ntfy notification
                         try:
                             ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry})\nP/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
-                            # Remove $ before entry price in notification
                             ntfy_msg = ntfy_msg.replace(f"$ (entry: {entry})", f" (entry: {entry})")
                             requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=3)
                         except Exception as ne:
