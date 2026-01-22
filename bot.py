@@ -205,8 +205,8 @@ try:
                 elif highest_covering_bid is None:
                     highest_covering_bid = Decimal('0')
 
-                # Sell if highest covering bid is -0.1% or +0.1% from entry
-                lower_thresh = entry * Decimal('0.999')  # -0.1%
+                # Sell if highest covering bid is -0.2% or +0.1% from entry
+                lower_thresh = entry * Decimal('0.998')  # -0.2%
                 upper_thresh = entry * Decimal('1.001')  # +0.1%
                 if highest_covering_bid <= lower_thresh or highest_covering_bid >= upper_thresh:
                     try:
@@ -258,7 +258,7 @@ try:
                                 break
                         if highest_covering_bid is None:
                             highest_covering_bid = Decimal(str(bids[0][0]))
-                        lower_thresh = entry * Decimal('0.999')  # -0.1%
+                        lower_thresh = entry * Decimal('0.998')  # -0.2%
                         upper_thresh = entry * Decimal('1.001')  # +0.1%
                         usd_value = qty * entry
                         pos_lines.append(
