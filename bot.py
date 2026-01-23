@@ -1,4 +1,3 @@
-
 import os
 import time
 from datetime import datetime
@@ -8,11 +7,18 @@ import ccxt
 import requests
 from dotenv import load_dotenv
 
-# Load environment variables from .env
+# --- Config ---
 load_dotenv()
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY', 'YOUR_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET', 'YOUR_API_SECRET')
+NTFY_URL = os.getenv('NTFY_URL', 'https://ntfy.sh/mHaneysAlgoBot')
+SYMBOL = 'BNB/USD'
+MIN_NOTIONAL = Decimal('10')
+SPREAD_ABS = Decimal('0.01')  # Spread must be exactly 0.01 BNB/USD
+LOG_INTERVAL = 10  # seconds
+CHECK_INTERVAL = 0.5  # seconds
 
+# --- Setup ---
 exchange = ccxt.binanceus({
     'apiKey': BINANCE_API_KEY,
     'secret': BINANCE_API_SECRET,
@@ -20,45 +26,33 @@ exchange = ccxt.binanceus({
     'timeout': 10000,
 })
 
-SYMBOL = 'BNB/USD'
-SPREAD_THRESHOLD = Decimal('0.0005')  # 0.05%
-MAX_USD_RATIO = Decimal('0.9')
-
 logging.basicConfig(
     filename='trading_bot.log',
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
 )
 
-
-positions = []  # List of {'entry': Decimal, 'qty': Decimal}
-
-
-# Timing and price history setup
-LOG_INTERVAL = 10  # seconds
-CHECK_INTERVAL = 0.5  # seconds
-from collections import deque
-price_history = deque(maxlen=120)  # 120 * 0.5s = 60s, enough for 30s lookback
+positions = []  # Each: {'entry': Decimal, 'qty': Decimal}
 last_log_time = 0
 
+# --- ntfy notification ---
+def send_ntfy(msg):
+    try:
+        requests.post(NTFY_URL, data=msg.encode('utf-8'), timeout=3)
+    except Exception as e:
+        logging.warning(f"ntfy notification failed: {e}")
 
-# ntfy notification setup
-NTFY_URL = os.getenv('NTFY_URL', 'https://ntfy.sh/mHaneysAlgoBot')
+# --- Startup ---
 start_msg = "Bot Launched"
 print(f"\n{start_msg}\n")
 logging.info(start_msg)
-try:
-    requests.post(NTFY_URL, data=start_msg.encode('utf-8'), timeout=3)
-except Exception as e:
-    logging.warning(f"ntfy notification failed: {e}")
+send_ntfy(start_msg)
 
 try:
     while True:
         try:
             # Fetch order book
-            # ...existing code...
             order_book = exchange.fetch_order_book(SYMBOL, limit=10)
-            # ...existing code...
             bids = order_book['bids']
             asks = order_book['asks']
             if not bids or not asks:
@@ -66,10 +60,8 @@ try:
                 time.sleep(CHECK_INTERVAL)
                 continue
 
-            # Find the lowest open ask
             lowest_ask = Decimal(str(asks[0][0]))
             ask_qty = Decimal(str(asks[0][1]))
-
             # Find the highest bid that covers the lowest ask quantity
             covered_qty = Decimal('0')
             highest_covering_bid = None
@@ -81,134 +73,53 @@ try:
                     highest_covering_bid = bid_price
                     break
             if highest_covering_bid is None:
-                highest_covering_bid = Decimal(str(bids[0][0]))  # fallback to top bid
-
-            spread = (lowest_ask - highest_covering_bid) / lowest_ask
-
-            # ...existing code...
-            ticker = exchange.fetch_ticker(SYMBOL)
-            # ...existing code...
-            price = Decimal(str(ticker['last']))
-            now = time.time()
-            price_history.append((now, price))
-
-            # ...existing code...
-            balance = exchange.fetch_balance()
-            # ...existing code...
-            usd_balance = Decimal(str(balance['free'].get('USD', 0)))
-            bnb_balance = Decimal(str(balance['free'].get('BNB', 0)))
+                highest_covering_bid = Decimal(str(bids[0][0]))
 
             # --- Buy logic ---
-            # Buy if spread < 0.05%, but account for bids already attributed to open positions
-            min_notional = Decimal('10')
-            agg_qty = Decimal('0')
-            agg_usd = Decimal('0')
-            weighted_sum = Decimal('0')
-            for price_, qty_ in asks:
-                price_ = Decimal(str(price_))
-                qty_ = Decimal(str(qty_))
-                if agg_usd < min_notional:
-                    take_qty = min(qty_, ((min_notional - agg_usd) / price_))
-                    agg_qty += take_qty
-                    weighted_sum += take_qty * price_
-                    agg_usd += take_qty * price_
-                else:
-                    break
-            if agg_usd >= min_notional:
-                weighted_avg_price = weighted_sum / agg_qty
-                max_bnb = (usd_balance * Decimal('0.9')) / weighted_avg_price
-                buy_qty = min(agg_qty, max_bnb)
-
-                # Simulate bid consumption by open positions (price-priority)
-                bids_remaining = [(Decimal(str(bp)), Decimal(str(bq))) for bp, bq in bids]
-                open_positions = [p for p in positions if p.get('qty')]
-                # Sort open positions by exit price (higher first)
-                def exit_price(pos):
-                    entry = pos.get('entry')
-                    return max(entry * Decimal('0.998'), entry * Decimal('1.001'))
-                sorted_positions = sorted(open_positions, key=exit_price, reverse=True)
-                for pos in sorted_positions:
-                    qty = pos.get('qty')
-                    covered = Decimal('0')
-                    for i, (bid_price, bid_qty) in enumerate(bids_remaining):
-                        if bid_qty <= 0:
-                            continue
-                        take_qty = min(qty - covered, bid_qty)
-                        covered += take_qty
-                        bids_remaining[i] = (bid_price, bid_qty - take_qty)
-                        if covered >= qty:
-                            break
-
-                # Now, for the new buy, find the highest open bid that covers the buy_qty using remaining bids
-                covered_qty = Decimal('0')
-                highest_covering_bid = None
-                for bid_price, bid_qty in bids_remaining:
-                    if bid_qty <= 0:
-                        continue
-                    take_qty = min(buy_qty - covered_qty, bid_qty)
-                    covered_qty += take_qty
-                    if covered_qty >= buy_qty:
-                        highest_covering_bid = bid_price
-                        break
-                if highest_covering_bid is None and bids_remaining:
-                    highest_covering_bid = bids_remaining[0][0]
-                elif highest_covering_bid is None:
-                    highest_covering_bid = Decimal('0')
-
-                # Recalculate spread using weighted_avg_price and the true available highest covering bid
-                spread_for_buy = (weighted_avg_price - highest_covering_bid) / weighted_avg_price
-                if buy_qty > 0 and agg_usd >= min_notional and spread_for_buy < Decimal('0.0005'):
-                    try:
-                        order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
-                        filled_qty = Decimal(str(order.get('filled', buy_qty)))
-                        positions.append({'entry': weighted_avg_price, 'qty': filled_qty})
-                        usd_value = filled_qty * weighted_avg_price
-                        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        entry_log = f"[{now_str}] ENTERED position: {filled_qty:.4f} BNB @ {weighted_avg_price:.2f} (USD: ${usd_value:.2f})"
-                        print(entry_log)
-                        logging.info(entry_log)
-                    except Exception as e:
-                        print(f"Buy error: {e}")
-                        logging.error(f"Buy error: {e}")
+            balance = exchange.fetch_balance()
+            usd_balance = Decimal(str(balance['free'].get('USD', 0)))
+            max_bnb = (usd_balance * Decimal('0.9')) / lowest_ask
+            buy_qty = min(ask_qty, max_bnb)
+            spread = abs(lowest_ask - highest_covering_bid)
+            if buy_qty > 0 and (buy_qty * lowest_ask) >= MIN_NOTIONAL and spread == SPREAD_ABS:
+                try:
+                    order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
+                    filled_qty = Decimal(str(order.get('filled', buy_qty)))
+                    positions.append({'entry': lowest_ask, 'qty': filled_qty})
+                    usd_value = filled_qty * lowest_ask
+                    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    entry_log = f"[{now_str}] ENTERED position: {filled_qty:.4f} BNB @ {lowest_ask:.2f} (USD: ${usd_value:.2f})"
+                    print(entry_log)
+                    logging.info(entry_log)
+                    # send_ntfy(entry_log)  # ntfy notification not needed for entry
+                except Exception as e:
+                    print(f"Buy error: {e}")
+                    logging.error(f"Buy error: {e}")
 
             # --- Sell logic ---
-            # Sort positions by exit threshold (higher price first)
-            def exit_price(pos):
-                entry = pos.get('entry')
-                return max(entry * Decimal('0.998'), entry * Decimal('1.001'))
-            sorted_positions = sorted(positions, key=exit_price, reverse=True)
-
-            # Copy bids so we can decrement as we "sell" positions
-            bids_remaining = [(Decimal(str(bp)), Decimal(str(bq))) for bp, bq in bids]
+            # Sell if highest covering bid decreases from previous value
+            if not hasattr(globals(), '_prev_covering_bids'):
+                globals()['_prev_covering_bids'] = {}
+            prev_covering_bids = globals()['_prev_covering_bids']
             new_positions = []
-            for pos in sorted_positions:
-                entry = pos.get('entry')
-                qty = pos.get('qty')
-                if qty is None:
-                    print(f"ERROR: qty missing in position: {pos}")
-                    continue
-
-                # Find the highest open bid that covers this position's qty, decrementing bids as we go
+            for pos in positions:
+                entry = pos['entry']
+                qty = pos['qty']
+                pos_id = f"{entry}-{qty}"
+                # Find the highest open bid that covers this position's qty
                 covered_qty = Decimal('0')
                 highest_covering_bid = None
-                for i, (bid_price, bid_qty) in enumerate(bids_remaining):
-                    if bid_qty <= 0:
-                        continue
-                    take_qty = min(qty - covered_qty, bid_qty)
-                    covered_qty += take_qty
-                    bids_remaining[i] = (bid_price, bid_qty - take_qty)
+                for bid_price, bid_qty in bids:
+                    bid_price = Decimal(str(bid_price))
+                    bid_qty = Decimal(str(bid_qty))
+                    covered_qty += bid_qty
                     if covered_qty >= qty:
                         highest_covering_bid = bid_price
                         break
-                if highest_covering_bid is None and bids_remaining:
-                    highest_covering_bid = bids_remaining[0][0]  # fallback
-                elif highest_covering_bid is None:
-                    highest_covering_bid = Decimal('0')
-
-                # Sell if highest covering bid is -0.2% or +0.1% from entry
-                lower_thresh = entry * Decimal('0.998')  # -0.2%
-                upper_thresh = entry * Decimal('1.001')  # +0.1%
-                if highest_covering_bid <= lower_thresh or highest_covering_bid >= upper_thresh:
+                if highest_covering_bid is None:
+                    highest_covering_bid = Decimal(str(bids[0][0]))
+                prev_bid = prev_covering_bids.get(pos_id, highest_covering_bid)
+                if highest_covering_bid < prev_bid:
                     try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
                         pnl_usd = (highest_covering_bid - entry) * qty
@@ -217,35 +128,30 @@ try:
                         exit_log = f"[{now_str}] EXITED position: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
                         print(exit_log)
                         logging.info(exit_log)
-                        # ntfy notification
-                        try:
-                            ntfy_msg = f"SOLD {qty} BNB at {highest_covering_bid} $ (entry: {entry})\nP/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
-                            ntfy_msg = ntfy_msg.replace(f"$ (entry: {entry})", f" (entry: {entry})")
-                            requests.post(NTFY_URL, data=ntfy_msg.encode('utf-8'), timeout=3)
-                        except Exception as ne:
-                            logging.warning(f"ntfy sale notification failed: {ne}")
+                        send_ntfy(exit_log)
                     except Exception as e:
                         print(f"Sell error: {e}")
                         logging.error(f"Sell error: {e}")
                 else:
                     new_positions.append(pos)
+                prev_covering_bids[pos_id] = highest_covering_bid
             positions = new_positions
 
-            # --- Status log ---
+            # --- Logger ---
+            now = time.time()
             if now - last_log_time >= LOG_INTERVAL:
                 now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 lowest_ask_amt = Decimal(str(asks[0][1]))
                 lowest_ask_price = Decimal(str(asks[0][0]))
                 lowest_ask_usd = lowest_ask_amt * lowest_ask_price
                 log_lines = [
-                    f"[{now_str}] USD: ${usd_balance:.2f}, Spread: {spread*100:.4f}%, Lowest Ask: {lowest_ask_amt} BNB @ {lowest_ask_price} (USD: ${lowest_ask_usd:.2f})"
+                    f"[{now_str}] USD: ${usd_balance:.2f}, Spread: {spread:.4f}, Lowest Ask: {lowest_ask_amt} BNB @ {lowest_ask_price} (USD: ${lowest_ask_usd:.2f})"
                 ]
-                # Positions update
                 if positions:
                     pos_lines = []
                     for pos in positions:
-                        entry = pos.get('entry')
-                        qty = pos.get('qty')
+                        entry = pos['entry']
+                        qty = pos['qty']
                         # Find the highest open bid that covers this position's qty
                         covered_qty = Decimal('0')
                         highest_covering_bid = None
@@ -258,11 +164,9 @@ try:
                                 break
                         if highest_covering_bid is None:
                             highest_covering_bid = Decimal(str(bids[0][0]))
-                        lower_thresh = entry * Decimal('0.998')  # -0.2%
-                        upper_thresh = entry * Decimal('1.001')  # +0.1%
                         usd_value = qty * entry
                         pos_lines.append(
-                            f"Entry: {entry:.2f}, Current: {highest_covering_bid}, Low: {lower_thresh}, High: {upper_thresh}, Value: USD: ${usd_value:.2f}"
+                            f"Entry: {entry:.2f}, Current: {highest_covering_bid:.2f}, Value: USD: ${usd_value:.2f}"
                         )
                     log_lines.append("Positions:\n" + "\n".join(pos_lines))
                 else:
@@ -275,15 +179,8 @@ try:
         except Exception as e:
             print(f"Error: {e}")
             time.sleep(CHECK_INTERVAL)
-                    # ...existing code...
 except KeyboardInterrupt:
     shutdown_msg = "Bot Shutdown"
     print(f"\n{shutdown_msg}\n")
     logging.info(shutdown_msg)
-    try:
-        requests.post(NTFY_URL, data=shutdown_msg.encode('utf-8'), timeout=3)
-    except Exception as e:
-        print(f"ntfy shutdown notification failed: {e}")
-        logging.warning(f"ntfy shutdown notification failed: {e}")
-    finally:
-        pass  # Ensure graceful exit even if ntfy fails
+    send_ntfy(shutdown_msg)
