@@ -145,7 +145,7 @@ try:
                 lowest_ask_price = Decimal(str(asks[0][0]))
                 lowest_ask_usd = lowest_ask_amt * lowest_ask_price
                 log_lines = [
-                    f"[{now_str}] USD: ${usd_balance:.2f}, Spread: {spread:.4f}, Lowest Ask: {lowest_ask_amt} BNB @ {lowest_ask_price} (USD: ${lowest_ask_usd:.2f})"
+                    f"[{now_str}] USD: ${usd_balance:.2f}, Spread: {spread:.2f}, Lowest Ask: {lowest_ask_amt:.2f} BNB @ {lowest_ask_price:.2f} (USD: ${lowest_ask_usd:.2f})"
                 ]
                 if positions:
                     pos_lines = []
