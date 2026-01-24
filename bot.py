@@ -102,10 +102,11 @@ try:
                 globals()['_prev_covering_bids'] = {}
             prev_covering_bids = globals()['_prev_covering_bids']
             new_positions = []
-            for pos in positions:
+            # Assign a unique ID to each position instance
+            for idx, pos in enumerate(positions):
                 entry = pos['entry']
                 qty = pos['qty']
-                pos_id = f"{entry}-{qty}"
+                pos_id = f"{entry}-{qty}-{idx}"
                 # Find the highest open bid that covers this position's qty
                 covered_qty = Decimal('0')
                 highest_covering_bid = None
