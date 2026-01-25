@@ -86,6 +86,12 @@ try:
                     order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                     filled_qty = Decimal(str(order.get('filled', buy_qty)))
                     positions.append({'entry': lowest_ask, 'qty': filled_qty})
+                    # Initialize previous covering bid for this new position
+                    if not hasattr(globals(), '_prev_covering_bids'):
+                        globals()['_prev_covering_bids'] = {}
+                    prev_covering_bids = globals()['_prev_covering_bids']
+                    pos_id = f"{lowest_ask}-{filled_qty}-{len(positions)-1}"
+                    prev_covering_bids[pos_id] = highest_covering_bid
                     usd_value = filled_qty * lowest_ask
                     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     entry_log = f"[{now_str}] ENTERED position: {filled_qty:.4f} BNB @ {lowest_ask:.2f} (USD: ${usd_value:.2f})"
