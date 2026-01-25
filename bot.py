@@ -88,11 +88,11 @@ try:
                     filled_qty = Decimal(str(order.get('filled', buy_qty)))
                     pos_uid = str(uuid.uuid4())
                     positions.append({'entry': lowest_ask, 'qty': filled_qty, 'uid': pos_uid})
-                    # Initialize previous covering bid for this new position
-                    if not hasattr(globals(), '_prev_covering_bids'):
-                        globals()['_prev_covering_bids'] = {}
-                    prev_covering_bids = globals()['_prev_covering_bids']
-                    prev_covering_bids[pos_uid] = highest_covering_bid
+                    # Initialize highest covering bid for this new position
+                    if not hasattr(globals(), '_max_covering_bids'):
+                        globals()['_max_covering_bids'] = {}
+                    max_covering_bids = globals()['_max_covering_bids']
+                    max_covering_bids[pos_uid] = highest_covering_bid
                     usd_value = filled_qty * lowest_ask
                     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     entry_log = f"[{now_str}] ENTERED position: {filled_qty:.4f} BNB @ {lowest_ask:.2f} (USD: ${usd_value:.2f})"
@@ -110,6 +110,9 @@ try:
             prev_covering_bids = globals()['_prev_covering_bids']
             new_positions = []
             # Assign a unique ID to each position instance
+            if not hasattr(globals(), '_max_covering_bids'):
+                globals()['_max_covering_bids'] = {}
+            max_covering_bids = globals()['_max_covering_bids']
             for pos in positions:
                 entry = pos['entry']
                 qty = pos['qty']
@@ -126,8 +129,12 @@ try:
                         break
                 if highest_covering_bid is None:
                     highest_covering_bid = Decimal(str(bids[0][0]))
-                prev_bid = prev_covering_bids.get(pos_uid, highest_covering_bid)
-                if highest_covering_bid < prev_bid:
+                # Track the highest covering bid since entry
+                max_bid = max_covering_bids.get(pos_uid, highest_covering_bid)
+                if highest_covering_bid > max_bid:
+                    max_covering_bids[pos_uid] = highest_covering_bid
+                    new_positions.append(pos)
+                elif highest_covering_bid < max_bid:
                     try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
                         pnl_usd = (highest_covering_bid - entry) * qty
@@ -142,7 +149,6 @@ try:
                         logging.error(f"Sell error: {e}")
                 else:
                     new_positions.append(pos)
-                prev_covering_bids[pos_uid] = highest_covering_bid
             positions = new_positions
 
             # --- Logger ---
