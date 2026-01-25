@@ -6,6 +6,7 @@ from decimal import Decimal
 import ccxt
 import requests
 from dotenv import load_dotenv
+import uuid
 
 # --- Config ---
 load_dotenv()
@@ -85,13 +86,13 @@ try:
                 try:
                     order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                     filled_qty = Decimal(str(order.get('filled', buy_qty)))
-                    positions.append({'entry': lowest_ask, 'qty': filled_qty})
+                    pos_uid = str(uuid.uuid4())
+                    positions.append({'entry': lowest_ask, 'qty': filled_qty, 'uid': pos_uid})
                     # Initialize previous covering bid for this new position
                     if not hasattr(globals(), '_prev_covering_bids'):
                         globals()['_prev_covering_bids'] = {}
                     prev_covering_bids = globals()['_prev_covering_bids']
-                    pos_id = f"{lowest_ask}-{filled_qty}-{len(positions)-1}"
-                    prev_covering_bids[pos_id] = highest_covering_bid
+                    prev_covering_bids[pos_uid] = highest_covering_bid
                     usd_value = filled_qty * lowest_ask
                     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     entry_log = f"[{now_str}] ENTERED position: {filled_qty:.4f} BNB @ {lowest_ask:.2f} (USD: ${usd_value:.2f})"
@@ -109,10 +110,10 @@ try:
             prev_covering_bids = globals()['_prev_covering_bids']
             new_positions = []
             # Assign a unique ID to each position instance
-            for idx, pos in enumerate(positions):
+            for pos in positions:
                 entry = pos['entry']
                 qty = pos['qty']
-                pos_id = f"{entry}-{qty}-{idx}"
+                pos_uid = pos.get('uid')
                 # Find the highest open bid that covers this position's qty
                 covered_qty = Decimal('0')
                 highest_covering_bid = None
@@ -125,7 +126,7 @@ try:
                         break
                 if highest_covering_bid is None:
                     highest_covering_bid = Decimal(str(bids[0][0]))
-                prev_bid = prev_covering_bids.get(pos_id, highest_covering_bid)
+                prev_bid = prev_covering_bids.get(pos_uid, highest_covering_bid)
                 if highest_covering_bid < prev_bid:
                     try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
@@ -141,7 +142,7 @@ try:
                         logging.error(f"Sell error: {e}")
                 else:
                     new_positions.append(pos)
-                prev_covering_bids[pos_id] = highest_covering_bid
+                prev_covering_bids[pos_uid] = highest_covering_bid
             positions = new_positions
 
             # --- Logger ---
