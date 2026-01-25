@@ -92,7 +92,7 @@ try:
                     if not hasattr(globals(), '_max_covering_bids'):
                         globals()['_max_covering_bids'] = {}
                     max_covering_bids = globals()['_max_covering_bids']
-                    max_covering_bids[pos_uid] = highest_covering_bid
+                    max_covering_bids[pos_uid] = lowest_ask  # Initialize to entry price
                     usd_value = filled_qty * lowest_ask
                     now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     entry_log = f"[{now_str}] ENTERED position: {filled_qty:.4f} BNB @ {lowest_ask:.2f} (USD: ${usd_value:.2f})"
@@ -129,11 +129,14 @@ try:
                         break
                 if highest_covering_bid is None:
                     highest_covering_bid = Decimal(str(bids[0][0]))
-                # Always update max_covering_bids to the maximum seen so far
-                prev_max = max_covering_bids.get(pos_uid, highest_covering_bid)
-                max_covering_bids[pos_uid] = max(prev_max, highest_covering_bid)
-                # Only sell if current bid drops below the max seen since entry
-                if highest_covering_bid < max_covering_bids[pos_uid]:
+                # Initialize max_covering_bids to entry if missing
+                if pos_uid not in max_covering_bids:
+                    max_covering_bids[pos_uid] = entry
+                prev_max = max_covering_bids.get(pos_uid, entry)
+                if highest_covering_bid > prev_max:
+                    max_covering_bids[pos_uid] = highest_covering_bid
+                    new_positions.append(pos)
+                elif highest_covering_bid < prev_max:
                     try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
                         pnl_usd = (highest_covering_bid - entry) * qty
@@ -143,6 +146,9 @@ try:
                         print(exit_log)
                         logging.info(exit_log)
                         send_ntfy(exit_log)
+                        # Remove max tracking after sell
+                        if pos_uid in max_covering_bids:
+                            del max_covering_bids[pos_uid]
                     except Exception as e:
                         print(f"Sell error: {e}")
                         logging.error(f"Sell error: {e}")
