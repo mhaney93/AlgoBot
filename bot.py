@@ -197,4 +197,8 @@ except KeyboardInterrupt:
     shutdown_msg = "Bot Shutdown"
     print(f"\n{shutdown_msg}\n")
     logging.info(shutdown_msg)
-    send_ntfy(shutdown_msg)
+    try:
+        send_ntfy(shutdown_msg)
+    except Exception as e:
+        print(f"ntfy shutdown notification failed: {e}")
+        logging.warning(f"ntfy shutdown notification failed: {e}")
