@@ -129,12 +129,11 @@ try:
                         break
                 if highest_covering_bid is None:
                     highest_covering_bid = Decimal(str(bids[0][0]))
-                # Track the highest covering bid since entry
-                max_bid = max_covering_bids.get(pos_uid, highest_covering_bid)
-                if highest_covering_bid > max_bid:
-                    max_covering_bids[pos_uid] = highest_covering_bid
-                    new_positions.append(pos)
-                elif highest_covering_bid < max_bid:
+                # Always update max_covering_bids to the maximum seen so far
+                prev_max = max_covering_bids.get(pos_uid, highest_covering_bid)
+                max_covering_bids[pos_uid] = max(prev_max, highest_covering_bid)
+                # Only sell if current bid drops below the max seen since entry
+                if highest_covering_bid < max_covering_bids[pos_uid]:
                     try:
                         order = exchange.create_market_sell_order(SYMBOL, float(qty))
                         pnl_usd = (highest_covering_bid - entry) * qty
