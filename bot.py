@@ -14,7 +14,7 @@ BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET', 'YOUR_API_SECRET')
 NTFY_URL = os.getenv('NTFY_URL', 'https://ntfy.sh/mHaneysAlgoBot')
 SYMBOL = 'BNB/USD'
 MIN_NOTIONAL = Decimal('10')
-SPREAD_ABS = Decimal('0.01')  # Spread must be exactly 0.01 BNB/USD
+SPREAD_PCT = Decimal('0.0005')  # Spread must be less than 0.05%
 LOG_INTERVAL = 10  # seconds
 CHECK_INTERVAL = 0.5  # seconds
 
@@ -80,8 +80,8 @@ try:
             usd_balance = Decimal(str(balance['free'].get('USD', 0)))
             max_bnb = (usd_balance * Decimal('0.9')) / lowest_ask
             buy_qty = min(ask_qty, max_bnb)
-            spread = abs(lowest_ask - highest_covering_bid)
-            if buy_qty > 0 and (buy_qty * lowest_ask) >= MIN_NOTIONAL and spread == SPREAD_ABS:
+            spread = abs((lowest_ask - highest_covering_bid) / lowest_ask)
+            if buy_qty > 0 and (buy_qty * lowest_ask) >= MIN_NOTIONAL and spread < SPREAD_PCT:
                 try:
                     order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                     filled_qty = Decimal(str(order.get('filled', buy_qty)))
