@@ -147,33 +147,31 @@ try:
                         del pending_sell_times[pos_uid]
                     new_positions.append(pos)
                 elif highest_covering_bid < prev_max:
-                    # Start or check confirmation period
+                    # Start confirmation period only if not already started
                     if pos_uid not in pending_sell_times:
                         pending_sell_times[pos_uid] = now_time
-                        new_positions.append(pos)
+                    elapsed = now_time - pending_sell_times[pos_uid]
+                    if elapsed >= CONFIRMATION_PERIOD:
+                        try:
+                            order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                            pnl_usd = (highest_covering_bid - entry) * qty
+                            pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
+                            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            exit_log = f"[{now_str}] SOLD: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
+                            ntfy_msg = f"SOLD: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
+                            print(exit_log)
+                            logging.info(exit_log)
+                            send_ntfy(ntfy_msg)
+                            # Remove max and pending sell tracking after sell
+                            if pos_uid in max_covering_bids:
+                                del max_covering_bids[pos_uid]
+                            if pos_uid in pending_sell_times:
+                                del pending_sell_times[pos_uid]
+                        except Exception as e:
+                            print(f"Sell error: {e}")
+                            logging.error(f"Sell error: {e}")
                     else:
-                        elapsed = now_time - pending_sell_times[pos_uid]
-                        if elapsed >= CONFIRMATION_PERIOD:
-                            try:
-                                order = exchange.create_market_sell_order(SYMBOL, float(qty))
-                                pnl_usd = (highest_covering_bid - entry) * qty
-                                pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
-                                now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                exit_log = f"[{now_str}] SOLD: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
-                                ntfy_msg = f"SOLD: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
-                                print(exit_log)
-                                logging.info(exit_log)
-                                send_ntfy(ntfy_msg)
-                                # Remove max and pending sell tracking after sell
-                                if pos_uid in max_covering_bids:
-                                    del max_covering_bids[pos_uid]
-                                if pos_uid in pending_sell_times:
-                                    del pending_sell_times[pos_uid]
-                            except Exception as e:
-                                print(f"Sell error: {e}")
-                                logging.error(f"Sell error: {e}")
-                        else:
-                            new_positions.append(pos)
+                        new_positions.append(pos)
                 else:
                     # No drop, no new high, cancel any pending sell
                     if pos_uid in pending_sell_times:
