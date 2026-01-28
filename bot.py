@@ -167,6 +167,16 @@ try:
                     print(f"[DEBUG] Position {pos_uid}: Drop persists. Current {highest_covering_bid}, Max {prev_max}, Elapsed {elapsed:.2f}s")
                     logging.info(f"[DEBUG] Position {pos_uid}: Drop persists. Current {highest_covering_bid}, Max {prev_max}, Elapsed {elapsed:.2f}s")
                     if elapsed >= CONFIRMATION_PERIOD:
+                        # Enforce min sell size
+                        MIN_BNB_SELL = 0.01
+                        if qty < MIN_BNB_SELL:
+                            print(f"[DEBUG] Position {pos_uid}: Amount {qty} below min sell size. Removing from tracking.")
+                            logging.warning(f"Position {pos_uid}: Amount {qty} below min sell size. Removing from tracking.")
+                            if pos_uid in max_covering_bids:
+                                del max_covering_bids[pos_uid]
+                            if pos_uid in pending_sell_times:
+                                del pending_sell_times[pos_uid]
+                            continue
                         try:
                             print(f"[DEBUG] Position {pos_uid}: Sell triggered after {elapsed:.2f}s below max.")
                             logging.info(f"[DEBUG] Position {pos_uid}: Sell triggered after {elapsed:.2f}s below max.")
@@ -188,7 +198,12 @@ try:
                         except Exception as e:
                             print(f"Sell error: {e}")
                             logging.error(f"Sell error: {e}")
-                            new_positions.append(pos)
+                            # Remove position from tracking to avoid repeated failed attempts
+                            if pos_uid in max_covering_bids:
+                                del max_covering_bids[pos_uid]
+                            if pos_uid in pending_sell_times:
+                                del pending_sell_times[pos_uid]
+                            continue
                     else:
                         new_positions.append(pos)
                 else:
