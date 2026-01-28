@@ -33,8 +33,15 @@ logging.basicConfig(
     format='%(asctime)s %(levelname)s %(message)s',
 )
 
+
 positions = []  # Each: {'entry': Decimal, 'qty': Decimal}
 last_log_time = 0
+
+# --- Persistent state for position tracking ---
+if not hasattr(globals(), '_max_covering_bids'):
+    globals()['_max_covering_bids'] = {}
+if not hasattr(globals(), '_pending_sell_times'):
+    globals()['_pending_sell_times'] = {}
 
 # --- ntfy notification ---
 def send_ntfy(msg):
@@ -110,13 +117,9 @@ try:
             prev_covering_bids = globals()['_prev_covering_bids']
             new_positions = []
             # Assign a unique ID to each position instance
-            if not hasattr(globals(), '_max_covering_bids'):
-                globals()['_max_covering_bids'] = {}
             max_covering_bids = globals()['_max_covering_bids']
             # --- Confirmation period for sell ---
             CONFIRMATION_PERIOD = 3  # seconds
-            if not hasattr(globals(), '_pending_sell_times'):
-                globals()['_pending_sell_times'] = {}
             pending_sell_times = globals()['_pending_sell_times']
 
             print(f"[DEBUG] pending_sell_times at loop start: {pending_sell_times}")
