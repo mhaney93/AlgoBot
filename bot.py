@@ -7,6 +7,7 @@ import ccxt
 import requests
 from dotenv import load_dotenv
 import uuid
+from collections import deque
 
 # --- Config ---
 load_dotenv()
@@ -56,10 +57,30 @@ print(f"\n{start_msg}\n")
 logging.info(start_msg)
 send_ntfy(start_msg)
 
+
+
+# --- SMA setup ---
+SMA7_PERIOD = 7
+SMA25_PERIOD = 25
+SMA99_PERIOD = 99
+SHARPNESS_LOOKBACK = 3  # periods to look back for sharpness
+SHARPNESS_THRESHOLD = 0.5  # gap must shrink by at least 50%
+
+
+# Store 1m candle closes
+closes = deque(maxlen=SMA99_PERIOD + SHARPNESS_LOOKBACK + 2)  # +2 for crossover lookback
+
 try:
     while True:
         try:
-            # Fetch order book
+
+            # Fetch 1m candles (OHLCV)
+            ohlcv = exchange.fetch_ohlcv(SYMBOL, timeframe='1m', limit=SMA99_PERIOD + SHARPNESS_LOOKBACK + 2)
+            closes.clear()
+            for candle in ohlcv:
+                closes.append(float(candle[4]))  # candle[4] is close price
+
+            # Fetch order book for sizing and execution
             order_book = exchange.fetch_order_book(SYMBOL, limit=10)
             bids = order_book['bids']
             asks = order_book['asks']
@@ -70,8 +91,20 @@ try:
 
             lowest_ask = Decimal(str(asks[0][0]))
             ask_qty = Decimal(str(asks[0][1]))
+
+
+            # Calculate SMAs if enough data
+            sma7 = None
+            sma25 = None
+            sma99 = None
+            if len(closes) >= SMA99_PERIOD:
+                sma7 = sum(closes[-SMA7_PERIOD:]) / SMA7_PERIOD
+                sma25 = sum(closes[-SMA25_PERIOD:]) / SMA25_PERIOD
+                sma99 = sum(closes[-SMA99_PERIOD:]) / SMA99_PERIOD
+
             # Find the highest bid that covers the lowest ask quantity
             covered_qty = Decimal('0')
+
             highest_covering_bid = None
             for bid_price, bid_qty in bids:
                 bid_price = Decimal(str(bid_price))
@@ -83,13 +116,46 @@ try:
             if highest_covering_bid is None:
                 highest_covering_bid = Decimal(str(bids[0][0]))
 
-            # --- Buy logic ---
+            # --- Buy logic: SMA7 approaches SMA99 sharply from below ---
             balance = exchange.fetch_balance()
             usd_balance = Decimal(str(balance['free'].get('USD', 0)))
-            max_bnb = (usd_balance * Decimal('0.9')) / lowest_ask
-            buy_qty = min(ask_qty, max_bnb)
-            spread = abs((lowest_ask - highest_covering_bid) / lowest_ask)
-            if buy_qty > 0 and (buy_qty * lowest_ask) >= MIN_NOTIONAL and spread < SPREAD_PCT:
+
+
+            # Calculate total USD value of all trades in the last SMA7_PERIOD 1m candles
+            total_usd_in_ma7 = Decimal('0')
+            try:
+                # Fetch 1m candles with volume
+                # ohlcv: [timestamp, open, high, low, close, volume]
+                for candle in ohlcv[-SMA7_PERIOD:]:
+                    close = Decimal(str(candle[4]))
+                    volume = Decimal(str(candle[5]))
+                    total_usd_in_ma7 += close * volume
+            except Exception as e:
+                print(f"Candle volume fetch error: {e}")
+                logging.warning(f"Candle volume fetch error: {e}")
+
+            max_usd = usd_balance * Decimal('0.9')
+            buy_usd = min(max_usd, total_usd_in_ma7)
+            buy_qty = buy_usd / lowest_ask if lowest_ask > 0 else Decimal('0')
+
+            buy_signal = False
+            if (
+                sma7 is not None and sma99 is not None
+            ):
+                # Only consider if ma7 is below ma99
+                if sma7 < sma99:
+                    # Calculate gap now and SHARPNESS_LOOKBACK periods ago
+                    gap_now = sma99 - sma7
+                    gap_then = None
+                    if len(closes) >= SMA99_PERIOD + SHARPNESS_LOOKBACK:
+                        sma7_then = sum(list(closes)[-SMA7_PERIOD-SHARPNESS_LOOKBACK:-SHARPNESS_LOOKBACK]) / SMA7_PERIOD
+                        sma99_then = sum(list(closes)[-SMA99_PERIOD-SHARPNESS_LOOKBACK:-SHARPNESS_LOOKBACK]) / SMA99_PERIOD
+                        gap_then = sma99_then - sma7_then
+                        # If the gap has shrunk by at least SHARPNESS_THRESHOLD (e.g., 50%)
+                        if gap_then > 0 and gap_now / gap_then <= (1 - SHARPNESS_THRESHOLD):
+                            buy_signal = True
+
+            if buy_signal and buy_qty > 0 and (buy_qty * lowest_ask) >= MIN_NOTIONAL:
                 try:
                     order = exchange.create_market_buy_order(SYMBOL, float(buy_qty))
                     filled_qty = Decimal(str(order.get('filled', buy_qty)))
@@ -110,23 +176,65 @@ try:
                     print(f"Buy error: {e}")
                     logging.error(f"Buy error: {e}")
 
-            # --- Sell logic ---
-            # Sell if highest covering bid decreases from previous value
-            if not hasattr(globals(), '_prev_covering_bids'):
-                globals()['_prev_covering_bids'] = {}
-            prev_covering_bids = globals()['_prev_covering_bids']
+            # --- Sell logic: sell when SMA7 crosses from above to below SMA25 ---
             new_positions = []
-            # Assign a unique ID to each position instance
-            max_covering_bids = globals()['_max_covering_bids']
-            # --- Confirmation period for sell ---
-            CONFIRMATION_PERIOD = 3  # seconds
-            pending_sell_times = globals()['_pending_sell_times']
-
-            print(f"[DEBUG] pending_sell_times at loop start: {pending_sell_times}")
-            logging.info(f"[DEBUG] pending_sell_times at loop start: {pending_sell_times}")
             for pos in positions:
-                print(f"[DEBUG] Checking position UID: {pos.get('uid')}")
-                logging.info(f"[DEBUG] Checking position UID: {pos.get('uid')}")
+                pos_uid = pos.get('uid')
+                # Only check for crossover if enough data
+                if len(closes) >= SMA25_PERIOD + 2:
+                    sma7_now = sum(list(closes)[-SMA7_PERIOD:]) / SMA7_PERIOD
+                    sma25_now = sum(list(closes)[-SMA25_PERIOD:]) / SMA25_PERIOD
+                    sma7_prev = sum(list(closes)[-SMA7_PERIOD-1:-1]) / SMA7_PERIOD
+                    sma25_prev = sum(list(closes)[-SMA25_PERIOD-1:-1]) / SMA25_PERIOD
+                    # Crossover: was above, now below
+                    if sma7_prev > sma25_prev and sma7_now < sma25_now:
+                        try:
+                            qty = pos['qty']
+                            entry = pos['entry']
+                            order = exchange.create_market_sell_order(SYMBOL, float(qty))
+                            pnl_usd = (lowest_ask - entry) * qty
+                            pnl_pct = ((lowest_ask - entry) / entry) * Decimal('100')
+                            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            exit_log = f"[{now_str}] SOLD: {qty:.4f} BNB @ {lowest_ask:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
+                            ntfy_msg = f"SOLD: {qty:.4f} BNB @ {lowest_ask:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
+                            print(exit_log)
+                            logging.info(exit_log)
+                            send_ntfy(ntfy_msg)
+                            # Remove max and pending sell tracking after sell
+                            if not hasattr(globals(), '_max_covering_bids'):
+                                globals()['_max_covering_bids'] = {}
+                            if not hasattr(globals(), '_pending_sell_times'):
+                                globals()['_pending_sell_times'] = {}
+                            max_covering_bids = globals()['_max_covering_bids']
+                            pending_sell_times = globals()['_pending_sell_times']
+                            if pos_uid in max_covering_bids:
+                                del max_covering_bids[pos_uid]
+                            if pos_uid in pending_sell_times:
+                                del pending_sell_times[pos_uid]
+                            continue  # Do not append to new_positions
+                        except Exception as e:
+                            print(f"Sell error: {e}")
+                            logging.error(f"Sell error: {e}")
+                            # Remove position from tracking to avoid repeated failed attempts
+                            if not hasattr(globals(), '_max_covering_bids'):
+                                globals()['_max_covering_bids'] = {}
+                            if not hasattr(globals(), '_pending_sell_times'):
+                                globals()['_pending_sell_times'] = {}
+                            max_covering_bids = globals()['_max_covering_bids']
+                            pending_sell_times = globals()['_pending_sell_times']
+                            if pos_uid in max_covering_bids:
+                                del max_covering_bids[pos_uid]
+                            if pos_uid in pending_sell_times:
+                                del pending_sell_times[pos_uid]
+                            continue
+                    else:
+                        new_positions.append(pos)
+                else:
+                    new_positions.append(pos)
+            positions = new_positions
+            # ...existing code...
+            for pos in positions:
+                # ...existing code...
                 entry = pos['entry']
                 qty = pos['qty']
                 pos_uid = pos.get('uid')
@@ -151,35 +259,25 @@ try:
                     max_covering_bids[pos_uid] = highest_covering_bid
                     # Cancel any pending sell if price recovers
                     if pos_uid in pending_sell_times:
-                        print(f"[DEBUG] Position {pos_uid}: Bid recovered to {highest_covering_bid} (max {prev_max}), canceling pending sell.")
-                        logging.info(f"[DEBUG] Position {pos_uid}: Bid recovered to {highest_covering_bid} (max {prev_max}), canceling pending sell.")
                         del pending_sell_times[pos_uid]
-                    print(f"[DEBUG] Position {pos_uid}: New max bid {highest_covering_bid}")
-                    logging.info(f"[DEBUG] Position {pos_uid}: New max bid {highest_covering_bid}")
+                    # ...existing code...
                     new_positions.append(pos)
                 elif highest_covering_bid < prev_max:
                     # Start confirmation period only if not already started
                     if pos_uid not in pending_sell_times:
                         pending_sell_times[pos_uid] = now_time
-                        print(f"[DEBUG] Position {pos_uid}: Drop detected. Current {highest_covering_bid}, Max {prev_max}. Timer started at {now_time}")
-                        logging.info(f"[DEBUG] Position {pos_uid}: Drop detected. Current {highest_covering_bid}, Max {prev_max}. Timer started at {now_time}")
                     elapsed = now_time - pending_sell_times[pos_uid]
-                    print(f"[DEBUG] Position {pos_uid}: Drop persists. Current {highest_covering_bid}, Max {prev_max}, Elapsed {elapsed:.2f}s")
-                    logging.info(f"[DEBUG] Position {pos_uid}: Drop persists. Current {highest_covering_bid}, Max {prev_max}, Elapsed {elapsed:.2f}s")
+                    # ...existing code...
                     if elapsed >= CONFIRMATION_PERIOD:
                         # Enforce min sell size
                         MIN_BNB_SELL = 0.01
                         if qty < MIN_BNB_SELL:
-                            print(f"[DEBUG] Position {pos_uid}: Amount {qty} below min sell size. Removing from tracking.")
-                            logging.warning(f"Position {pos_uid}: Amount {qty} below min sell size. Removing from tracking.")
                             if pos_uid in max_covering_bids:
                                 del max_covering_bids[pos_uid]
                             if pos_uid in pending_sell_times:
                                 del pending_sell_times[pos_uid]
                             continue
                         try:
-                            print(f"[DEBUG] Position {pos_uid}: Sell triggered after {elapsed:.2f}s below max.")
-                            logging.info(f"[DEBUG] Position {pos_uid}: Sell triggered after {elapsed:.2f}s below max.")
                             order = exchange.create_market_sell_order(SYMBOL, float(qty))
                             pnl_usd = (highest_covering_bid - entry) * qty
                             pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
@@ -217,32 +315,15 @@ try:
             now = time.time()
             if now - last_log_time >= LOG_INTERVAL:
                 now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                lowest_ask_amt = Decimal(str(asks[0][1]))
-                lowest_ask_price = Decimal(str(asks[0][0]))
-                lowest_ask_usd = lowest_ask_amt * lowest_ask_price
-                log_lines = [
-                    f"[{now_str}] USD: ${usd_balance:.2f}, Spread: {spread*100:.4f}%, Lowest Ask: {lowest_ask_amt:.2f} BNB @ {lowest_ask_price:.2f} (USD: ${lowest_ask_usd:.2f})"
-                ]
+                log_lines = [f"[{now_str}] USD: ${usd_balance:.2f}"]
                 if positions:
                     pos_lines = []
                     for pos in positions:
                         entry = pos['entry']
                         qty = pos['qty']
-                        # Find the highest open bid that covers this position's qty
-                        covered_qty = Decimal('0')
-                        highest_covering_bid = None
-                        for bid_price, bid_qty in bids:
-                            bid_price = Decimal(str(bid_price))
-                            bid_qty = Decimal(str(bid_qty))
-                            covered_qty += bid_qty
-                            if covered_qty >= qty:
-                                highest_covering_bid = bid_price
-                                break
-                        if highest_covering_bid is None:
-                            highest_covering_bid = Decimal(str(bids[0][0]))
                         usd_value = qty * entry
                         pos_lines.append(
-                            f"Entry: {entry:.2f}, Current: {highest_covering_bid:.2f}, Value: USD: ${usd_value:.2f}"
+                            f"Entry: {entry:.2f}, Qty: {qty:.4f}, Value: USD: ${usd_value:.2f}"
                         )
                     log_lines.append("Positions:\n" + "\n".join(pos_lines))
                 else:
