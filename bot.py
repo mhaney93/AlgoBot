@@ -98,9 +98,10 @@ try:
             sma25 = None
             sma99 = None
             if len(closes) >= SMA99_PERIOD:
-                sma7 = sum(closes[-SMA7_PERIOD:]) / SMA7_PERIOD
-                sma25 = sum(closes[-SMA25_PERIOD:]) / SMA25_PERIOD
-                sma99 = sum(closes[-SMA99_PERIOD:]) / SMA99_PERIOD
+                closes_list = list(closes)
+                sma7 = sum(closes_list[-SMA7_PERIOD:]) / SMA7_PERIOD
+                sma25 = sum(closes_list[-SMA25_PERIOD:]) / SMA25_PERIOD
+                sma99 = sum(closes_list[-SMA99_PERIOD:]) / SMA99_PERIOD
 
             # Find the highest bid that covers the lowest ask quantity
             covered_qty = Decimal('0')
@@ -126,7 +127,8 @@ try:
             try:
                 # Fetch 1m candles with volume
                 # ohlcv: [timestamp, open, high, low, close, volume]
-                for candle in ohlcv[-SMA7_PERIOD:]:
+                ohlcv_list = list(ohlcv)
+                for candle in ohlcv_list[-SMA7_PERIOD:]:
                     close = Decimal(str(candle[4]))
                     volume = Decimal(str(candle[5]))
                     total_usd_in_ma7 += close * volume
@@ -142,14 +144,15 @@ try:
             if (
                 sma7 is not None and sma99 is not None
             ):
+                closes_list = list(closes)
                 # Only consider if ma7 is below ma99
                 if sma7 < sma99:
                     # Calculate gap now and SHARPNESS_LOOKBACK periods ago
                     gap_now = sma99 - sma7
                     gap_then = None
                     if len(closes) >= SMA99_PERIOD + SHARPNESS_LOOKBACK:
-                        sma7_then = sum(list(closes)[-SMA7_PERIOD-SHARPNESS_LOOKBACK:-SHARPNESS_LOOKBACK]) / SMA7_PERIOD
-                        sma99_then = sum(list(closes)[-SMA99_PERIOD-SHARPNESS_LOOKBACK:-SHARPNESS_LOOKBACK]) / SMA99_PERIOD
+                        sma7_then = sum(closes_list[-SMA7_PERIOD-SHARPNESS_LOOKBACK:-SHARPNESS_LOOKBACK]) / SMA7_PERIOD
+                        sma99_then = sum(closes_list[-SMA99_PERIOD-SHARPNESS_LOOKBACK:-SHARPNESS_LOOKBACK]) / SMA99_PERIOD
                         gap_then = sma99_then - sma7_then
                         # If the gap has shrunk by at least SHARPNESS_THRESHOLD (e.g., 50%)
                         if gap_then > 0 and gap_now / gap_then <= (1 - SHARPNESS_THRESHOLD):
@@ -182,10 +185,11 @@ try:
                 pos_uid = pos.get('uid')
                 # Only check for crossover if enough data
                 if len(closes) >= SMA25_PERIOD + 2:
-                    sma7_now = sum(list(closes)[-SMA7_PERIOD:]) / SMA7_PERIOD
-                    sma25_now = sum(list(closes)[-SMA25_PERIOD:]) / SMA25_PERIOD
-                    sma7_prev = sum(list(closes)[-SMA7_PERIOD-1:-1]) / SMA7_PERIOD
-                    sma25_prev = sum(list(closes)[-SMA25_PERIOD-1:-1]) / SMA25_PERIOD
+                    closes_list = list(closes)
+                    sma7_now = sum(closes_list[-SMA7_PERIOD:]) / SMA7_PERIOD
+                    sma25_now = sum(closes_list[-SMA25_PERIOD:]) / SMA25_PERIOD
+                    sma7_prev = sum(closes_list[-SMA7_PERIOD-1:-1]) / SMA7_PERIOD
+                    sma25_prev = sum(closes_list[-SMA25_PERIOD-1:-1]) / SMA25_PERIOD
                     # Crossover: was above, now below
                     if sma7_prev > sma25_prev and sma7_now < sma25_now:
                         try:
