@@ -144,15 +144,25 @@ try:
                     max_covering_bids[pos_uid] = highest_covering_bid
                     # Cancel any pending sell if price recovers
                     if pos_uid in pending_sell_times:
+                        print(f"[DEBUG] Position {pos_uid}: Bid recovered to {highest_covering_bid} (max {prev_max}), canceling pending sell.")
+                        logging.info(f"[DEBUG] Position {pos_uid}: Bid recovered to {highest_covering_bid} (max {prev_max}), canceling pending sell.")
                         del pending_sell_times[pos_uid]
+                    print(f"[DEBUG] Position {pos_uid}: New max bid {highest_covering_bid}")
+                    logging.info(f"[DEBUG] Position {pos_uid}: New max bid {highest_covering_bid}")
                     new_positions.append(pos)
                 elif highest_covering_bid < prev_max:
                     # Start confirmation period only if not already started
                     if pos_uid not in pending_sell_times:
                         pending_sell_times[pos_uid] = now_time
+                        print(f"[DEBUG] Position {pos_uid}: Drop detected. Current {highest_covering_bid}, Max {prev_max}. Timer started at {now_time}")
+                        logging.info(f"[DEBUG] Position {pos_uid}: Drop detected. Current {highest_covering_bid}, Max {prev_max}. Timer started at {now_time}")
                     elapsed = now_time - pending_sell_times[pos_uid]
+                    print(f"[DEBUG] Position {pos_uid}: Drop persists. Current {highest_covering_bid}, Max {prev_max}, Elapsed {elapsed:.2f}s")
+                    logging.info(f"[DEBUG] Position {pos_uid}: Drop persists. Current {highest_covering_bid}, Max {prev_max}, Elapsed {elapsed:.2f}s")
                     if elapsed >= CONFIRMATION_PERIOD:
                         try:
+                            print(f"[DEBUG] Position {pos_uid}: Sell triggered after {elapsed:.2f}s below max.")
+                            logging.info(f"[DEBUG] Position {pos_uid}: Sell triggered after {elapsed:.2f}s below max.")
                             order = exchange.create_market_sell_order(SYMBOL, float(qty))
                             pnl_usd = (highest_covering_bid - entry) * qty
                             pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
@@ -167,9 +177,11 @@ try:
                                 del max_covering_bids[pos_uid]
                             if pos_uid in pending_sell_times:
                                 del pending_sell_times[pos_uid]
+                            # Do NOT append to new_positions after sell
                         except Exception as e:
                             print(f"Sell error: {e}")
                             logging.error(f"Sell error: {e}")
+                            new_positions.append(pos)
                     else:
                         new_positions.append(pos)
                 else:
