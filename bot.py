@@ -119,7 +119,11 @@ try:
                 globals()['_pending_sell_times'] = {}
             pending_sell_times = globals()['_pending_sell_times']
 
+            print(f"[DEBUG] pending_sell_times at loop start: {pending_sell_times}")
+            logging.info(f"[DEBUG] pending_sell_times at loop start: {pending_sell_times}")
             for pos in positions:
+                print(f"[DEBUG] Checking position UID: {pos.get('uid')}")
+                logging.info(f"[DEBUG] Checking position UID: {pos.get('uid')}")
                 entry = pos['entry']
                 qty = pos['qty']
                 pos_uid = pos.get('uid')
