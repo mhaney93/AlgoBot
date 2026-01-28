@@ -38,11 +38,9 @@ logging.basicConfig(
 positions = []  # Each: {'entry': Decimal, 'qty': Decimal}
 last_log_time = 0
 
-# --- Persistent state for position tracking ---
+ # --- Persistent state for position tracking ---
 if not hasattr(globals(), '_max_covering_bids'):
     globals()['_max_covering_bids'] = {}
-if not hasattr(globals(), '_pending_sell_times'):
-    globals()['_pending_sell_times'] = {}
 
 # --- ntfy notification ---
 def send_ntfy(msg):
@@ -204,17 +202,12 @@ try:
                             print(exit_log)
                             logging.info(exit_log)
                             send_ntfy(ntfy_msg)
-                            # Remove max and pending sell tracking after sell
+                            # Remove max tracking after sell
                             if not hasattr(globals(), '_max_covering_bids'):
                                 globals()['_max_covering_bids'] = {}
-                            if not hasattr(globals(), '_pending_sell_times'):
-                                globals()['_pending_sell_times'] = {}
                             max_covering_bids = globals()['_max_covering_bids']
-                            pending_sell_times = globals()['_pending_sell_times']
                             if pos_uid in max_covering_bids:
                                 del max_covering_bids[pos_uid]
-                            if pos_uid in pending_sell_times:
-                                del pending_sell_times[pos_uid]
                             continue  # Do not append to new_positions
                         except Exception as e:
                             print(f"Sell error: {e}")
@@ -222,14 +215,9 @@ try:
                             # Remove position from tracking to avoid repeated failed attempts
                             if not hasattr(globals(), '_max_covering_bids'):
                                 globals()['_max_covering_bids'] = {}
-                            if not hasattr(globals(), '_pending_sell_times'):
-                                globals()['_pending_sell_times'] = {}
                             max_covering_bids = globals()['_max_covering_bids']
-                            pending_sell_times = globals()['_pending_sell_times']
                             if pos_uid in max_covering_bids:
                                 del max_covering_bids[pos_uid]
-                            if pos_uid in pending_sell_times:
-                                del pending_sell_times[pos_uid]
                             continue
                     else:
                         new_positions.append(pos)
@@ -237,83 +225,7 @@ try:
                     new_positions.append(pos)
             positions = new_positions
             # ...existing code...
-            for pos in positions:
-                # ...existing code...
-                entry = pos['entry']
-                qty = pos['qty']
-                pos_uid = pos.get('uid')
-                # Find the highest open bid that covers this position's qty
-                covered_qty = Decimal('0')
-                highest_covering_bid = None
-                for bid_price, bid_qty in bids:
-                    bid_price = Decimal(str(bid_price))
-                    bid_qty = Decimal(str(bid_qty))
-                    covered_qty += bid_qty
-                    if covered_qty >= qty:
-                        highest_covering_bid = bid_price
-                        break
-                if highest_covering_bid is None:
-                    highest_covering_bid = Decimal(str(bids[0][0]))
-                # Initialize max_covering_bids to entry if missing
-                if pos_uid not in max_covering_bids:
-                    max_covering_bids[pos_uid] = entry
-                prev_max = max_covering_bids.get(pos_uid, entry)
-                now_time = time.time()
-                if highest_covering_bid > prev_max:
-                    max_covering_bids[pos_uid] = highest_covering_bid
-                    # Cancel any pending sell if price recovers
-                    if pos_uid in pending_sell_times:
-                        del pending_sell_times[pos_uid]
-                    # ...existing code...
-                    new_positions.append(pos)
-                elif highest_covering_bid < prev_max:
-                    # Start confirmation period only if not already started
-                    if pos_uid not in pending_sell_times:
-                        pending_sell_times[pos_uid] = now_time
-                    elapsed = now_time - pending_sell_times[pos_uid]
-                    # ...existing code...
-                    if elapsed >= CONFIRMATION_PERIOD:
-                        # Enforce min sell size
-                        MIN_BNB_SELL = 0.01
-                        if qty < MIN_BNB_SELL:
-                            if pos_uid in max_covering_bids:
-                                del max_covering_bids[pos_uid]
-                            if pos_uid in pending_sell_times:
-                                del pending_sell_times[pos_uid]
-                            continue
-                        try:
-                            order = exchange.create_market_sell_order(SYMBOL, float(qty))
-                            pnl_usd = (highest_covering_bid - entry) * qty
-                            pnl_pct = ((highest_covering_bid - entry) / entry) * Decimal('100')
-                            now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            exit_log = f"[{now_str}] SOLD: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
-                            ntfy_msg = f"SOLD: {qty:.4f} BNB @ {highest_covering_bid:.2f} (entry: {entry:.2f}) | P/L: ${pnl_usd:.2f} ({pnl_pct:.2f}%)"
-                            print(exit_log)
-                            logging.info(exit_log)
-                            send_ntfy(ntfy_msg)
-                            # Remove max and pending sell tracking after sell
-                            if pos_uid in max_covering_bids:
-                                del max_covering_bids[pos_uid]
-                            if pos_uid in pending_sell_times:
-                                del pending_sell_times[pos_uid]
-                            # Do NOT append to new_positions after sell
-                        except Exception as e:
-                            print(f"Sell error: {e}")
-                            logging.error(f"Sell error: {e}")
-                            # Remove position from tracking to avoid repeated failed attempts
-                            if pos_uid in max_covering_bids:
-                                del max_covering_bids[pos_uid]
-                            if pos_uid in pending_sell_times:
-                                del pending_sell_times[pos_uid]
-                            continue
-                    else:
-                        new_positions.append(pos)
-                else:
-                    # No drop, no new high, cancel any pending sell
-                    if pos_uid in pending_sell_times:
-                        del pending_sell_times[pos_uid]
-                    new_positions.append(pos)
-            positions = new_positions
+            # (Removed all logic referencing pending_sell_times)
 
             # --- Logger ---
             now = time.time()
